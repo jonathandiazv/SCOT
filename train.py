@@ -40,7 +40,7 @@ import seaborn as sns              # visualisation de la matrice de confusion en
 #  CONFIGURATION — modifiez ces valeurs
 # ─────────────────────────────────────────────
 CONFIG = {
-    "data_dir":     "data/",     # chemin vers le dossier contenant train/ et val/
+    "data_dir":     "dataset/",     # chemin vers le dossier contenant train/ et val/
     "output_dir":   "outputs/",  # où sauvegarder le modèle et les graphiques
     "img_size":     128,         # toutes les images seront redimensionnées en 128×128 px
     "batch_size":   32,          # nombre d'images traitées simultanément à chaque étape
