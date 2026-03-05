@@ -116,6 +116,9 @@ def get_transforms(img_size: int):
         # pixel_normalisé = (pixel - 0.5) / 0.5
         # Aide le réseau à converger plus vite
         transforms.Normalize(mean=[0.5], std=[0.5]),
+
+        # ajouter une augmentation qui simule l'irrégularité des inclusions — légère déformation élastique.
+        transforms.ElasticTransform(alpha=50.0, sigma=5.0),  # PyTorch >= 2.0
     ])
 
     # ── Transformations pour la validation (sans augmentation) ──
@@ -488,9 +491,10 @@ def main():
 
     # ── 3. Fonction de perte, optimiseur, scheduler ──
 
-    # CrossEntropyLoss : mesure l'écart entre les prédictions et les vraies classes
-    # C'est la loss standard pour la classification multi-classes
-    criterion = nn.CrossEntropyLoss()
+    # Pénalise plus fortement les erreurs sur les inclusions
+    weights = torch.tensor([1.0, 2.0, 1.0]).to(cfg["device"])
+    # ordre :                tache  inclusion  rayure
+    criterion = nn.CrossEntropyLoss(weight=weights)
 
     # AdamW : variante d'Adam avec régularisation des poids découplée
     # Plus robuste qu'Adam classique pour éviter le surapprentissage
