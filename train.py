@@ -491,10 +491,7 @@ def main():
 
     # ── 3. Fonction de perte, optimiseur, scheduler ──
 
-    # Pénalise plus fortement les erreurs sur les inclusions
-    weights = torch.tensor([1.0, 2.0, 1.0]).to(cfg["device"])
-    # ordre :                tache  inclusion  rayure
-    criterion = nn.CrossEntropyLoss(weight=weights)
+    criterion = nn.CrossEntropyLoss()
 
     # AdamW : variante d'Adam avec régularisation des poids découplée
     # Plus robuste qu'Adam classique pour éviter le surapprentissage
