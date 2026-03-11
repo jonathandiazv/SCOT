@@ -6,3 +6,4 @@ outputs/
 dataset/
 .DS_Store
 .vscode/
+~$*.xlsx
