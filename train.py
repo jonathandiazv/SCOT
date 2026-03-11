@@ -35,7 +35,6 @@ from sklearn.metrics import classification_report, confusion_matrix
 # confusion_matrix      : tableau montrant les erreurs de classification entre classes
 import seaborn as sns              # visualisation de la matrice de confusion en heatmap
 
-
 # ─────────────────────────────────────────────
 #  CONFIGURATION — modifiez ces valeurs
 # ─────────────────────────────────────────────
@@ -43,7 +42,7 @@ CONFIG = {
     "data_dir":     "dataset/",     # chemin vers le dossier contenant train/ et val/
     "output_dir":   "outputs/",  # où sauvegarder le modèle et les graphiques
     "img_size":     128,         # toutes les images seront redimensionnées en 128×128 px
-    "batch_size":   32,          # nombre d'images traitées simultanément à chaque étape
+    "batch_size":   128,          # nombre d'images traitées simultanément à chaque étape
     "epochs":       30,          # nombre de passages complets sur le dataset d'entraînement
     "lr":           1e-3,        # learning rate : vitesse d'apprentissage (0.001)
     "weight_decay": 1e-4,        # régularisation L2 : pénalise les grands poids pour éviter le surapprentissage
@@ -515,7 +514,7 @@ def main():
     print(f"\n{'Epoch':>6}  {'Train Loss':>10}  {'Train Acc':>9}  {'Val Loss':>8}  {'Val Acc':>7}")
     print("─" * 55)
 
-    for epoch in range(1, cfg["epochs"] + 1):
+    for epoch in (range(1, cfg["epochs"] + 1)):
 
         # Entraîne sur tout le dataset train et récupère loss + accuracy
         tr_loss, tr_acc = train_one_epoch(model, train_loader, optimizer, criterion, cfg["device"])
