@@ -44,9 +44,9 @@ CONFIG = {
     "img_size":     128,         # toutes les images seront redimensionnées en 128×128 px
     "batch_size":   128,          # nombre d'images traitées simultanément à chaque étape
     "epochs":       30,          # nombre de passages complets sur le dataset d'entraînement
-    "lr":           1e-3,        # learning rate : vitesse d'apprentissage (0.001)
+    "lr":           1e-4,        # learning rate : vitesse d'apprentissage (réduit pour le transfer learning)
     "weight_decay": 1e-4,        # régularisation L2 : pénalise les grands poids pour éviter le surapprentissage
-    "use_transfer": False,       # False = CNN from scratch | True = ResNet18 pré-entraîné
+    "use_transfer": True,       # True = ResNet18 pré-entraîné
     "classes":      ["tache", "rayure", "inclusion"],
     "device":       "cuda" if torch.cuda.is_available() else "cpu",
     # "cuda" = GPU Nvidia (entraînement rapide) | "cpu" = processeur (plus lent)

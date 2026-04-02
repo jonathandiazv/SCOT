@@ -11,15 +11,14 @@
 import argparse
 import torch
 import torch.nn as nn
-from torchvision import transforms
+from torchvision import transforms, models
 from PIL import Image
 import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
 import numpy as np
 from pathlib import Path
 
 
-# ── Reprendre la même architecture que train.py ──────────────
+# ── Architecture CNN from scratch ────────────────────────────
 class ParticleCNN(nn.Module):
     def __init__(self, num_classes=3):
         super().__init__()
@@ -46,6 +45,15 @@ class ParticleCNN(nn.Module):
     def forward(self, x):
         return self.classifier(self.features(x))
 
+# ── Fonction pour créer le modèle selon la config ───────────
+def get_model_architecture(cfg, num_classes):
+    if cfg.get("use_transfer", False):
+        model = models.resnet18(weights=None) # Pas besoin de charger les poids ImageNet ici
+        model.conv1 = nn.Conv2d(1, 64, 7, stride=2, padding=3, bias=False)
+        model.fc = nn.Linear(model.fc.in_features, num_classes)
+    else:
+        model = ParticleCNN(num_classes=num_classes)
+    return model
 
 # ── Chargement du modèle ─────────────────────────────────────
 def load_model(checkpoint_path: str, device: str):
@@ -53,21 +61,24 @@ def load_model(checkpoint_path: str, device: str):
     classes = ckpt["classes"]
     cfg = ckpt["config"]
 
-    model = ParticleCNN(num_classes=len(classes))
+    model = get_model_architecture(cfg, len(classes))
     model.load_state_dict(ckpt["model_state"])
     model.to(device).eval()
     return model, classes, cfg
 
 
 # ── Prétraitement d'une image ────────────────────────────────
-def preprocess(img_path: str, img_size: int = 128):
+def preprocess(img_path_or_pil, img_size: int = 128):
     tf = transforms.Compose([
         transforms.Grayscale(num_output_channels=1),
         transforms.Resize((img_size, img_size)),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.5], std=[0.5]),
     ])
-    img = Image.open(img_path).convert("RGB")
+    if isinstance(img_path_or_pil, (str, Path)):
+        img = Image.open(img_path_or_pil).convert("RGB")
+    else:
+        img = img_path_or_pil.convert("RGB")
     return tf(img).unsqueeze(0), img
 
 
@@ -84,7 +95,7 @@ def predict(model, tensor, classes, device):
 # ── Visualisation d'une image ────────────────────────────────
 COLORS = {"tache": "#ff6b35", "rayure": "#00d4ff", "inclusion": "#7b61ff"}
 
-def show_result(img, img_path, pred_class, probs, classes):
+def show_result(img, img_name, pred_class, probs, classes):
     fig, (ax_img, ax_bar) = plt.subplots(1, 2, figsize=(10, 4))
     fig.patch.set_facecolor('#060a0f')
 
@@ -111,7 +122,7 @@ def show_result(img, img_path, pred_class, probs, classes):
         ax_bar.text(bar.get_width() + 1, bar.get_y() + bar.get_height() / 2,
                     f"{prob:.1%}", va='center', color='white', fontsize=10)
 
-    plt.suptitle(Path(img_path).name, color='#4a6070', fontsize=9)
+    plt.suptitle(img_name, color='#4a6070', fontsize=9)
     plt.tight_layout()
     plt.show()
 
@@ -145,6 +156,11 @@ def main():
     args = parser.parse_args()
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    
+    if not Path(args.model).exists():
+        print(f"Erreur : Le modèle {args.model} n'existe pas. Lancez d'abord train.py.")
+        return
+
     model, classes, cfg = load_model(args.model, device)
     print(f"✓ Modèle chargé  |  Classes : {classes}  |  Device : {device}")
 
@@ -155,7 +171,7 @@ def main():
         for cls, p in zip(classes, probs):
             print(f"   {cls:<12} {p:.1%}")
         if not args.no_plot:
-            show_result(img, args.image, pred, probs, classes)
+            show_result(img, Path(args.image).name, pred, probs, classes)
 
     elif args.folder:
         predict_folder(model, args.folder, classes, cfg, device)
