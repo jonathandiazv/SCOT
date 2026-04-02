@@ -505,49 +505,53 @@ def main():
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=cfg["epochs"])
 
     # ── 4. Boucle d'entraînement ──
-    # Dictionnaire pour stocker les métriques à chaque époque (pour les courbes)
     history = {"train_loss": [], "val_loss": [], "train_acc": [], "val_acc": []}
     best_val_acc = 0.0
-    best_model_path = os.path.join(cfg["output_dir"], "best_model.pth")
+    
+    # Chemins de sauvegarde
+    from datetime import datetime
+    timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
+    archive_dir = os.path.join(cfg["output_dir"], "models_archive")
+    os.makedirs(archive_dir, exist_ok=True)
+    
+    versioned_model_path = os.path.join(archive_dir, f"best_model_{timestamp}.pth")
+    default_model_path = os.path.join(cfg["output_dir"], "best_model.pth")
 
-    # En-tête du tableau de suivi affiché dans le terminal
+    # En-tête du tableau de suivi
     print(f"\n{'Epoch':>6}  {'Train Loss':>10}  {'Train Acc':>9}  {'Val Loss':>8}  {'Val Acc':>7}")
     print("─" * 55)
 
     for epoch in (range(1, cfg["epochs"] + 1)):
-
-        # Entraîne sur tout le dataset train et récupère loss + accuracy
         tr_loss, tr_acc = train_one_epoch(model, train_loader, optimizer, criterion, cfg["device"])
-
-        # Évalue sur le dataset val (sans modifier les poids)
         vl_loss, vl_acc, preds, labels = evaluate(model, val_loader, criterion, cfg["device"])
-
-        # Met à jour le learning rate selon le cosinus scheduler
         scheduler.step()
 
-        # Sauvegarde les métriques pour les courbes finales
         history["train_loss"].append(tr_loss)
         history["val_loss"].append(vl_loss)
         history["train_acc"].append(tr_acc)
         history["val_acc"].append(vl_acc)
 
-        # Affiche la ligne de résultats (★ = nouveau record de validation)
         marker = " ★" if vl_acc > best_val_acc else ""
         print(f"{epoch:>6}  {tr_loss:>10.4f}  {tr_acc:>8.1%}  {vl_loss:>8.4f}  {vl_acc:>6.1%}{marker}")
 
-        # Sauvegarde le meilleur modèle (celui avec la meilleure val accuracy)
-        # On sauvegarde aussi les classes et la config pour pouvoir faire l'inférence plus tard
         if vl_acc > best_val_acc:
             best_val_acc = vl_acc
-            torch.save({
-                "model_state": model.state_dict(),  # poids du réseau
-                "classes":     classes,             # ["tache", "rayure", "inclusion"]
-                "config":      cfg                  # paramètres d'entraînement
-            }, best_model_path)
+            checkpoint = {
+                "model_state": model.state_dict(),
+                "classes":     classes,
+                "config":      cfg,
+                "timestamp":   timestamp,
+                "accuracy":    vl_acc
+            }
+            # Sauvegarde de la version horodatée
+            torch.save(checkpoint, versioned_model_path)
+            # Mise à jour du lien "best_model.pth" (copie du dernier meilleur)
+            torch.save(checkpoint, default_model_path)
 
     # ── 5. Rapport final ──
     print(f"\n✓ Meilleure val accuracy : {best_val_acc:.1%}")
-    print(f"✓ Modèle sauvegardé : {best_model_path}")
+    print(f"✓ Modèle archivé : {versioned_model_path}")
+    print(f"✓ Modèle par défaut mis à jour : {default_model_path}")
     print("\n── Rapport de classification ──")
     # Affiche précision, rappel et F1-score pour chaque classe
     print(classification_report(labels, preds, target_names=classes))

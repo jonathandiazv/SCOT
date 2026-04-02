@@ -48,7 +48,44 @@ def main():
 
     # Barre latérale pour les paramètres
     st.sidebar.header("Configuration")
-    model_path = st.sidebar.text_input("Chemin du modèle", "outputs/best_model.pth")
+    
+    # ── Gestion de l'archive des modèles ──
+    output_dir = "outputs"
+    archive_dir = os.path.join(output_dir, "models_archive")
+    default_model = os.path.join(output_dir, "best_model.pth")
+    
+    # Lister les modèles archivés
+    archived_models = []
+    if os.path.exists(archive_dir):
+        archived_models = sorted(
+            [f for f in os.listdir(archive_dir) if f.endswith(".pth")],
+            reverse=True # Plus récent en premier
+        )
+    
+    # Préparer les options de sélection
+    model_options = []
+    if os.path.exists(default_model):
+        model_options.append("Dernier meilleur (best_model.pth)")
+    
+    model_options.extend([os.path.join("models_archive", f) for f in archived_models])
+    
+    if not model_options:
+        st.error("Aucun modèle trouvé. Veuillez lancer `train.py`.")
+        return
+
+    selected_option = st.sidebar.selectbox(
+        "Choisir un modèle",
+        model_options,
+        index=0
+    )
+    
+    # Construire le chemin complet
+    if selected_option == "Dernier meilleur (best_model.pth)":
+        model_path = default_model
+    else:
+        model_path = os.path.join(output_dir, selected_option)
+    
+    st.sidebar.write(f"📂 `{os.path.basename(model_path)}`")
     
     device = "cuda" if torch.cuda.is_available() else "cpu"
     st.sidebar.info(f"Appareil utilisé : {device}")
