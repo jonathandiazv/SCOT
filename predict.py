@@ -17,6 +17,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 from pathlib import Path
 
+NO_DEFECT_CLASS = "sans_defaut"
+BLACK_IMAGE_MAX_PIXEL = 8
+BLACK_IMAGE_STD_THRESHOLD = 3.0
+BLACK_IMAGE_DARK_RATIO = 0.995
+
 
 # ── Architecture CNN from scratch ────────────────────────────
 class ParticleCNN(nn.Module):
@@ -82,18 +87,54 @@ def preprocess(img_path_or_pil, img_size: int = 128):
     return tf(img).unsqueeze(0), img
 
 
+def get_display_classes(classes):
+    return classes if NO_DEFECT_CLASS in classes else [*classes, NO_DEFECT_CLASS]
+
+
+def is_black_image(
+    img,
+    max_pixel=BLACK_IMAGE_MAX_PIXEL,
+    std_threshold=BLACK_IMAGE_STD_THRESHOLD,
+    dark_ratio=BLACK_IMAGE_DARK_RATIO,
+):
+    gray = np.array(img.convert("L"), dtype=np.uint8)
+    if gray.size == 0:
+        return False
+
+    pixel_max = float(gray.max())
+    pixel_std = float(gray.std())
+    ratio_dark = float((gray <= max_pixel).mean())
+    return pixel_max <= max_pixel or (
+        ratio_dark >= dark_ratio and pixel_std <= std_threshold
+    )
+
+
 # ── Prédiction avec probabilités ────────────────────────────
 @torch.no_grad()
-def predict(model, tensor, classes, device):
+def predict(model, tensor, classes, device, original_img=None):
+    display_classes = get_display_classes(classes)
+
+    if original_img is not None and is_black_image(original_img):
+        probs = np.zeros(len(display_classes), dtype=np.float32)
+        probs[display_classes.index(NO_DEFECT_CLASS)] = 1.0
+        return NO_DEFECT_CLASS, probs, display_classes
+
     tensor = tensor.to(device)
     logits = model(tensor)
-    probs = torch.softmax(logits, dim=1).squeeze().cpu().numpy()
+    probs = torch.softmax(logits, dim=1).squeeze().cpu().numpy().astype(np.float32)
+    if len(display_classes) != len(classes):
+        probs = np.append(probs, 0.0)
     pred_idx = probs.argmax()
-    return classes[pred_idx], probs
+    return display_classes[pred_idx], probs, display_classes
 
 
 # ── Visualisation d'une image ────────────────────────────────
-COLORS = {"tache": "#ff6b35", "rayure": "#00d4ff", "inclusion": "#7b61ff"}
+COLORS = {
+    "tache": "#ff6b35",
+    "rayure": "#00d4ff",
+    "inclusion": "#7b61ff",
+    NO_DEFECT_CLASS: "#10b981",
+}
 
 def show_result(img, img_name, pred_class, probs, classes):
     fig, (ax_img, ax_bar) = plt.subplots(1, 2, figsize=(10, 4))
@@ -139,8 +180,8 @@ def predict_folder(model, folder_path, classes, cfg, device):
     print(f"\n{'Image':<30} {'Classe':>10}  {'Confiance':>10}")
     print("─" * 55)
     for img_path in sorted(images):
-        tensor, _ = preprocess(str(img_path), cfg.get("img_size", 128))
-        pred, probs = predict(model, tensor, classes, device)
+        tensor, img = preprocess(str(img_path), cfg.get("img_size", 128))
+        pred, probs, _ = predict(model, tensor, classes, device, original_img=img)
         conf = probs.max()
         flag = "⚠️" if conf < 0.6 else ""
         print(f"{img_path.name:<30} {pred:>10}  {conf:>9.1%}  {flag}")
@@ -166,12 +207,12 @@ def main():
 
     if args.image:
         tensor, img = preprocess(args.image, cfg.get("img_size", 128))
-        pred, probs = predict(model, tensor, classes, device)
+        pred, probs, display_classes = predict(model, tensor, classes, device, original_img=img)
         print(f"\n→ Résultat : {pred.upper()}  (confiance : {probs.max():.1%})")
-        for cls, p in zip(classes, probs):
+        for cls, p in zip(display_classes, probs):
             print(f"   {cls:<12} {p:.1%}")
         if not args.no_plot:
-            show_result(img, Path(args.image).name, pred, probs, classes)
+            show_result(img, Path(args.image).name, pred, probs, display_classes)
 
     elif args.folder:
         predict_folder(model, args.folder, classes, cfg, device)

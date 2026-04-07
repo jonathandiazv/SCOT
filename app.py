@@ -194,7 +194,9 @@ def main():
                 st.subheader("Diagnostic IA")
                 with st.spinner('Analyse de l\'image...'):
                     tensor, img_pil = preprocess(latest_file, cfg.get("img_size", 128))
-                    pred_class, probs = predict(model, tensor, classes, device)
+                    pred_class, probs, display_classes = predict(
+                        model, tensor, classes, device, original_img=img_pil
+                    )
                     confiance = probs.max()
                     border_class = "border-success" if confiance > 0.8 else "border-warning" if confiance > 0.5 else "border-danger"
                     st.markdown(f"""
@@ -209,8 +211,8 @@ def main():
                     fig, ax = plt.subplots(figsize=(6, 3))
                     fig.patch.set_facecolor('#FFFFFF')
                     ax.set_facecolor('#F9FAFB')
-                    bar_colors = [COLORS.get(c, '#6B7280') for c in classes]
-                    ax.barh(classes, probs * 100, color=bar_colors)
+                    bar_colors = [COLORS.get(c, '#6B7280') for c in display_classes]
+                    ax.barh(display_classes, probs * 100, color=bar_colors)
                     ax.set_xlim(0, 100)
                     ax.tick_params(colors='#374151', labelsize=9)
                     ax.spines[:].set_visible(False)

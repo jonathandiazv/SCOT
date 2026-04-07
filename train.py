@@ -2,7 +2,7 @@
 =============================================================
  ParticleScope — Entraînement du classificateur de traces
 =============================================================
- Classes : tache | rayure | inclusion
+ Classes : tache | rayure | inclusion | sans_defaut
  Modèle  : CNN léger (from scratch) + option Transfer Learning
  Input   : images N&B (fond noir, trace blanche)
 =============================================================
@@ -47,7 +47,7 @@ CONFIG = {
     "lr":           1e-4,        # learning rate : vitesse d'apprentissage (réduit pour le transfer learning)
     "weight_decay": 1e-4,        # régularisation L2 : pénalise les grands poids pour éviter le surapprentissage
     "use_transfer": True,       # True = ResNet18 pré-entraîné
-    "classes":      ["tache", "rayure", "inclusion"],
+    "classes":      ["tache", "rayure", "inclusion", "sans_defaut"],
     "device":       "cuda" if torch.cuda.is_available() else "cpu",
     # "cuda" = GPU Nvidia (entraînement rapide) | "cpu" = processeur (plus lent)
 }
