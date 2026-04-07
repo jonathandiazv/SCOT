@@ -18,7 +18,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- STYLE CSS PERSONNALISÉ (MODE CLAIR) ---
+# --- STYLE CSS PERSONNALISÉ (MODE CLAIR STABLE) ---
 st.markdown("""
     <style>
     .stApp {
@@ -56,6 +56,7 @@ st.markdown("""
     .border-success { border-left: 6px solid #10B981; }
     .border-warning { border-left: 6px solid #F59E0B; }
     .border-danger { border-left: 6px solid #EF4444; }
+    
     div.stButton > button:first-child {
         background-color: #2563EB;
         color: white;
@@ -70,6 +71,7 @@ st.markdown("""
         color: white;
         border: none;
     }
+    
     .logo-container {
         font-size: 2.5rem;
         font-weight: 900;
@@ -105,43 +107,25 @@ def get_model_options():
     output_dir = "outputs"
     archive_dir = os.path.join(output_dir, "models_archive")
     default_model = os.path.join(output_dir, "best_model.pth")
-
     options = {}
-
-    # 1. Lister et trier les modèles archivés par coefficient CCCC
     archived_files = []
     if os.path.exists(archive_dir):
         archived_files = [f for f in os.listdir(archive_dir) if f.startswith("MODEL_") and f.endswith(".pth")]
-
-    # Fonction pour extraire le score CCCC du nom de fichier
     def extract_score(name):
         try:
-            # Format: MODEL_CCCC_YYYYMMDDHHMM.pth -> index 1 est CCCC
             return int(name.split('_')[1])
-        except:
-            return -1
-
-    # Trier par score décroissant
+        except: return -1
     sorted_archived = sorted(archived_files, key=extract_score, reverse=True)
-
-    # 2. Construire le dictionnaire des options
-    # On met le "Meilleur Score (Auto)" en premier
     if sorted_archived:
         best_file = sorted_archived[0]
         score_val = extract_score(best_file) / 10000.0
         options[f"⭐ TOP RANK : Score {score_val:.4f} ({best_file})"] = os.path.join(archive_dir, best_file)
-
-        # Ajouter les autres par ordre de score
         for f in sorted_archived[1:]:
             s = extract_score(f) / 10000.0
             options[f"Score {s:.4f} ({f})"] = os.path.join(archive_dir, f)
-
-    # Fallback sur best_model.pth s'il existe et n'est pas déjà le premier
     if os.path.exists(default_model):
         options["Dernier Entraînement (best_model.pth)"] = default_model
-
     return options
-
 
 def main():
     with st.sidebar:
@@ -151,7 +135,7 @@ def main():
         st.subheader("Configuration")
         model_options = get_model_options()
         if not model_options:
-            st.error("Aucun modèle détecté dans le dossier /outputs.")
+            st.error("Aucun modèle détecté.")
             st.stop()
         selected_model_label = st.selectbox("Modèle d'IA", list(model_options.keys()))
         model_path = model_options[selected_model_label]
@@ -167,13 +151,8 @@ def main():
             st.rerun()
 
     model, classes, cfg = get_cached_model(model_path, device)
-    col_h1, col_h2 = st.columns([3, 1])
-    with col_h1:
-        st.title("Tableau de Bord - Inspection")
-    with col_h2:
-        st.write("") 
-        if st.button("Rafraîchir Manuellement", use_container_width=True):
-            st.rerun()
+    
+    st.title("Tableau de Bord - Inspection")
 
     camera_dir = "data_camera"
     os.makedirs(camera_dir, exist_ok=True)
@@ -194,9 +173,7 @@ def main():
                 st.subheader("Diagnostic IA")
                 with st.spinner('Analyse de l\'image...'):
                     tensor, img_pil = preprocess(latest_file, cfg.get("img_size", 128))
-                    pred_class, probs, display_classes = predict(
-                        model, tensor, classes, device, original_img=img_pil
-                    )
+                    pred_class, probs, display_classes = predict(model, tensor, classes, device, original_img=img_pil)
                     confiance = probs.max()
                     border_class = "border-success" if confiance > 0.8 else "border-warning" if confiance > 0.5 else "border-danger"
                     st.markdown(f"""
@@ -218,26 +195,26 @@ def main():
                     ax.spines[:].set_visible(False)
                     ax.grid(axis='x', color='#E5E7EB', linestyle='--', alpha=0.7)
                     st.pyplot(fig)
-                    new_entry = {"Horodatage": time.strftime("%H:%M:%S"), "Fichier": os.path.basename(latest_file), "Détection": pred_class.upper(), "Confiance": f"{confiance:.1%}"}
+
+                    new_entry = {
+                        "Heure": time.strftime("%H:%M:%S"),
+                        "Fichier": os.path.basename(latest_file),
+                        "Détection": pred_class.upper(),
+                        "Confiance": f"{confiance:.1%}"
+                    }
                     if not st.session_state.history or st.session_state.history[0]["Fichier"] != new_entry["Fichier"]:
                         st.session_state.history.insert(0, new_entry)
                         if len(st.session_state.history) > 50: st.session_state.history.pop()
         else:
             st.info("Information : En attente de nouvelles images dans le dossier data_camera.")
-            if st.button("Simuler une capture"):
-                import shutil
-                val_images = list(Path("dataset/val").rglob("*.png"))
-                if val_images:
-                    shutil.copy(val_images[np.random.randint(len(val_images))], os.path.join(camera_dir, f"sim_{int(time.time())}.png"))
-                    st.rerun()
 
     with tab_history:
         st.subheader("Journal des Analyses")
         if st.session_state.history:
-            df = pd.DataFrame(st.session_state.history)
-            st.table(df)
+            df_hist = pd.DataFrame(st.session_state.history)
+            st.dataframe(df_hist, use_container_width=True, hide_index=True)
         else:
-            st.write("Aucun historique disponible pour cette session.")
+            st.info("Aucun historique disponible pour cette session.")
 
     with tab_stats:
         st.subheader("Analyse de Session")
