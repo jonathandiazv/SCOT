@@ -18,9 +18,7 @@ import numpy as np
 from pathlib import Path
 
 NO_DEFECT_CLASS = "sans_defaut"
-BLACK_IMAGE_MAX_PIXEL = 8
-BLACK_IMAGE_STD_THRESHOLD = 3.0
-BLACK_IMAGE_DARK_RATIO = 0.995
+WHITE_PIXEL_THRESHOLD = 1
 
 
 # ── Architecture CNN from scratch ────────────────────────────
@@ -93,20 +91,13 @@ def get_display_classes(classes):
 
 def is_black_image(
     img,
-    max_pixel=BLACK_IMAGE_MAX_PIXEL,
-    std_threshold=BLACK_IMAGE_STD_THRESHOLD,
-    dark_ratio=BLACK_IMAGE_DARK_RATIO,
+    white_pixel_threshold=WHITE_PIXEL_THRESHOLD,
 ):
     gray = np.array(img.convert("L"), dtype=np.uint8)
     if gray.size == 0:
         return False
 
-    pixel_max = float(gray.max())
-    pixel_std = float(gray.std())
-    ratio_dark = float((gray <= max_pixel).mean())
-    return pixel_max <= max_pixel or (
-        ratio_dark >= dark_ratio and pixel_std <= std_threshold
-    )
+    return not np.any(gray >= white_pixel_threshold)
 
 
 # ── Prédiction avec probabilités ────────────────────────────
