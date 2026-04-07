@@ -506,19 +506,16 @@ def main():
 
     # ── 4. Boucle d'entraînement ──
     history = {"train_loss": [], "val_loss": [], "train_acc": [], "val_acc": []}
-    best_val_acc = 0.0
+    best_cccc_score = -float('inf')
     
-    # Chemins de sauvegarde
-    from datetime import datetime
-    timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
+    # Dossier d'archivage
     archive_dir = os.path.join(cfg["output_dir"], "models_archive")
     os.makedirs(archive_dir, exist_ok=True)
     
-    versioned_model_path = os.path.join(archive_dir, f"best_model_{timestamp}.pth")
-    default_model_path = os.path.join(cfg["output_dir"], "best_model.pth")
+    from datetime import datetime
 
     # En-tête du tableau de suivi
-    print(f"\n{'Epoch':>6}  {'Train Loss':>10}  {'Train Acc':>9}  {'Val Loss':>8}  {'Val Acc':>7}")
+    print(f"\n{'Epoch':>6}  {'Train Acc':>9}  {'Val Acc':>8}  {'Val Loss':>8}  {'CCCC Score':>10}")
     print("─" * 55)
 
     for epoch in (range(1, cfg["epochs"] + 1)):
@@ -526,27 +523,40 @@ def main():
         vl_loss, vl_acc, preds, labels = evaluate(model, val_loader, criterion, cfg["device"])
         scheduler.step()
 
+        # --- CALCUL DU COEFFICIENT CCCC ---
+        # Formule : ValAcc - 0.2*ValLoss - 0.5*max(0, TrainAcc - ValAcc)
+        overfitting_penalty = 0.5 * max(0, tr_acc - vl_acc)
+        cccc_score = vl_acc - (0.2 * vl_loss) - overfitting_penalty
+        
         history["train_loss"].append(tr_loss)
         history["val_loss"].append(vl_loss)
         history["train_acc"].append(tr_acc)
         history["val_acc"].append(vl_acc)
 
-        marker = " ★" if vl_acc > best_val_acc else ""
-        print(f"{epoch:>6}  {tr_loss:>10.4f}  {tr_acc:>8.1%}  {vl_loss:>8.4f}  {vl_acc:>6.1%}{marker}")
+        marker = " ★" if cccc_score > best_cccc_score else ""
+        print(f"{epoch:>6}  {tr_acc:>9.1%}  {vl_acc:>8.1%}  {vl_loss:>8.4f}  {cccc_score:>10.4f}{marker}")
 
-        if vl_acc > best_val_acc:
-            best_val_acc = vl_acc
+        if cccc_score > best_cccc_score:
+            best_cccc_score = cccc_score
+            timestamp = datetime.now().strftime("%Y%m%d%H%M")
+            cccc_int = int(max(0, cccc_score) * 10000)
+            
+            model_filename = f"MODEL_{cccc_int:04d}_{timestamp}.pth"
+            versioned_path = os.path.join(archive_dir, model_filename)
+            default_path = os.path.join(cfg["output_dir"], "best_model.pth")
+
             checkpoint = {
                 "model_state": model.state_dict(),
                 "classes":     classes,
                 "config":      cfg,
-                "timestamp":   timestamp,
-                "accuracy":    vl_acc
+                "score":       cccc_score,
+                "metrics":     {"val_acc": vl_acc, "val_loss": vl_loss, "train_acc": tr_acc},
+                "timestamp":   timestamp
             }
-            # Sauvegarde de la version horodatée
-            torch.save(checkpoint, versioned_model_path)
-            # Mise à jour du lien "best_model.pth" (copie du dernier meilleur)
-            torch.save(checkpoint, default_model_path)
+            
+            # Sauvegarde archivée et par défaut
+            torch.save(checkpoint, versioned_path)
+            torch.save(checkpoint, default_path)
 
     # ── 5. Rapport final ──
     print(f"\n✓ Meilleure val accuracy : {best_val_acc:.1%}")

@@ -105,14 +105,43 @@ def get_model_options():
     output_dir = "outputs"
     archive_dir = os.path.join(output_dir, "models_archive")
     default_model = os.path.join(output_dir, "best_model.pth")
+
     options = {}
-    if os.path.exists(default_model):
-        options["Production (Dernier meilleur)"] = default_model
+
+    # 1. Lister et trier les modèles archivés par coefficient CCCC
+    archived_files = []
     if os.path.exists(archive_dir):
-        archived = sorted([f for f in os.listdir(archive_dir) if f.endswith(".pth")], reverse=True)
-        for f in archived:
-            options[f"Archive : {f}"] = os.path.join(archive_dir, f)
+        archived_files = [f for f in os.listdir(archive_dir) if f.startswith("MODEL_") and f.endswith(".pth")]
+
+    # Fonction pour extraire le score CCCC du nom de fichier
+    def extract_score(name):
+        try:
+            # Format: MODEL_CCCC_YYYYMMDDHHMM.pth -> index 1 est CCCC
+            return int(name.split('_')[1])
+        except:
+            return -1
+
+    # Trier par score décroissant
+    sorted_archived = sorted(archived_files, key=extract_score, reverse=True)
+
+    # 2. Construire le dictionnaire des options
+    # On met le "Meilleur Score (Auto)" en premier
+    if sorted_archived:
+        best_file = sorted_archived[0]
+        score_val = extract_score(best_file) / 10000.0
+        options[f"⭐ TOP RANK : Score {score_val:.4f} ({best_file})"] = os.path.join(archive_dir, best_file)
+
+        # Ajouter les autres par ordre de score
+        for f in sorted_archived[1:]:
+            s = extract_score(f) / 10000.0
+            options[f"Score {s:.4f} ({f})"] = os.path.join(archive_dir, f)
+
+    # Fallback sur best_model.pth s'il existe et n'est pas déjà le premier
+    if os.path.exists(default_model):
+        options["Dernier Entraînement (best_model.pth)"] = default_model
+
     return options
+
 
 def main():
     with st.sidebar:
