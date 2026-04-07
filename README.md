@@ -1,58 +1,90 @@
-# 🔬 ParticleScope — Classificateur de Traces de Particules
+# 🔬 ParticleScope : Détection & Classification de Défauts
 
-## Structure du projet
-```
-particle_classifier/
-├── train.py          ← Entraînement du modèle
-├── predict.py        ← Inférence sur nouvelles images
-├── requirements.txt
-└── data/
-    ├── train/
-    │   ├── tache/
-    │   ├── rayure/
-    │   └── inclusion/
-    └── val/
-        ├── tache/
-        ├── rayure/
-        └── inclusion/
-```
+ParticleScope est une solution de vision industrielle basée sur le Deep Learning (PyTorch) conçue pour identifier et classifier automatiquement trois types de défauts sur des surfaces : **Inclusions**, **Rayures** et **Taches**.
 
-## Installation
+---
+
+## 🏗️ Architecture du Projet
+
+Le projet est structuré de manière modulaire pour faciliter l'entraînement, l'évaluation et le déploiement en temps réel.
+
+- **`train.py`** : Pipeline complet d'entraînement (Data Augmentation, Transfer Learning avec ResNet18 ou CNN custom, gestion du déséquilibre des classes).
+- **`predict.py`** : Script d'inférence polyvalent pour analyser une image unique ou un dossier complet.
+- **`app.py`** : Interface utilisateur interactive (Streamlit) pour le monitoring en temps réel d'un flux d'images (caméra).
+- **`dataset/`** : Répertoire de données organisé par classes (`train/` et `val/`).
+- **`outputs/`** : Stockage automatique des modèles entraînés (`.pth`), matrices de confusion et courbes d'apprentissage.
+
+---
+
+## 🚀 Installation & Configuration
+
+### 1. Prérequis
+- Python 3.9+
+- CUDA (optionnel, pour accélération GPU)
+
+### 2. Installation des dépendances
 ```bash
 pip install -r requirements.txt
 ```
 
-## Préparer vos données
-Placez vos images dans `data/train/` et `data/val/` selon la structure ci-dessus.
-**Conseil :** visez 80% train / 20% val, avec au minimum ~50 images par classe.
+### 3. Structure du Dataset
+Organisez vos images comme suit :
+```text
+dataset/
+├── train/
+│   ├── inclusion/
+│   ├── rayure/
+│   └── tache/
+└── val/
+    ├── inclusion/
+    ├── rayure/
+    └── tache/
+```
 
-## Entraîner le modèle
+---
+
+## 🛠️ Utilisation
+
+### 🟢 Étape 1 : Entraînement
+Pour lancer l'entraînement du modèle (par défaut utilise ResNet18 pour une précision maximale) :
 ```bash
 python train.py
 ```
-Modifiez le bloc `CONFIG` dans `train.py` pour ajuster les hyperparamètres.
+*Le script générera un fichier `best_model.pth` dans le dossier `outputs/`.*
 
-### Options clés dans CONFIG
-| Paramètre | Défaut | Description |
-|---|---|---|
-| `img_size` | 128 | Taille de redimensionnement |
-| `epochs` | 30 | Nombre d'époques |
-| `lr` | 1e-3 | Taux d'apprentissage |
-| `use_transfer` | False | Activer ResNet18 pré-entraîné |
-
-## Inférence
+### 🔵 Étape 2 : Inférence (Test)
+Pour tester le modèle sur une image spécifique :
 ```bash
-# Une seule image
-python predict.py --image ma_trace.png
-
-# Tout un dossier
-python predict.py --folder nouveaux_echantillons/
-
-# Sans affichage graphique
-python predict.py --image ma_trace.png --no-plot
+python predict.py --image "chemin/vers/votre_image.png"
+```
+Ou sur un dossier complet :
+```bash
+python predict.py --folder "data_camera/"
 ```
 
-## Résultats générés après entraînement
-- `outputs/best_model.pth` — meilleur modèle sauvegardé
-- `outputs/training_history.png` — courbes loss / accuracy
-- `outputs/confusion_matrix.png` — matrice de confusion
+### 🔴 Étape 3 : Application Temps Réel
+Pour lancer l'interface de monitoring interactive :
+```bash
+streamlit run app.py
+```
+
+---
+
+## 🖥️ Interface Streamlit (ParticleScope Dashboard)
+
+L'application Streamlit offre les fonctionnalités suivantes :
+- **Monitoring Auto-Refresh** : Surveille le dossier `data_camera/` et analyse automatiquement chaque nouvelle capture.
+- **Archive des Modèles** : Permet de basculer instantanément entre différentes versions de modèles entraînés.
+- **Diagnostic Détaillé** : Affiche les probabilités par classe et un indicateur visuel de confiance.
+- **Mode Simulation** : Possibilité de tester l'interface sans caméra réelle.
+
+---
+
+## 📊 Performances & Métriques
+Après chaque entraînement, consultez le dossier `outputs/` pour :
+- `training_history.png` : Analyse de la convergence (Loss/Accuracy).
+- `confusion_matrix.png` : Analyse détaillée des erreurs par classe.
+- `classification_report.txt` : Précision, Rappel et F1-Score.
+
+---
+*Développé dans le cadre du Projet Innovation SCOT.*
