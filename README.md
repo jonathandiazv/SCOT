@@ -1,10 +1,10 @@
-# 🔬 ParticleScope : Détection & Classification de Défauts
+# SCOT : Système de Contrôle Optique des Traces
 
-ParticleScope est une solution de vision industrielle basée sur le Deep Learning (PyTorch) conçue pour identifier et classifier automatiquement trois types de défauts sur des surfaces : **Inclusions**, **Rayures** et **Taches**.
+SCOT est une solution de vision industrielle basée sur le Deep Learning (PyTorch) conçue pour identifier et classifier automatiquement trois types de défauts sur des surfaces : Inclusions, Rayures et Taches.
 
 ---
 
-## 🏗️ Architecture du Projet
+## Architecture du Projet
 
 Le projet est structuré de manière modulaire pour faciliter l'entraînement, l'évaluation et le déploiement en temps réel.
 
@@ -16,7 +16,7 @@ Le projet est structuré de manière modulaire pour faciliter l'entraînement, l
 
 ---
 
-## 🚀 Installation & Configuration
+## Installation & Configuration
 
 ### 1. Prérequis
 - Python 3.9+
@@ -43,16 +43,16 @@ dataset/
 
 ---
 
-## 🛠️ Utilisation
+## Utilisation
 
-### 🟢 Étape 1 : Entraînement
+### Étape 1 : Entraînement
 Pour lancer l'entraînement du modèle (par défaut utilise ResNet18 pour une précision maximale) :
 ```bash
 python train.py
 ```
 *Le script générera un fichier `best_model.pth` dans le dossier `outputs/`.*
 
-### 🔵 Étape 2 : Inférence (Test)
+### Étape 2 : Inférence (Test)
 Pour tester le modèle sur une image spécifique :
 ```bash
 python predict.py --image "chemin/vers/votre_image.png"
@@ -62,29 +62,28 @@ Ou sur un dossier complet :
 python predict.py --folder "data_camera/"
 ```
 
-### 🔴 Étape 3 : Application Temps Réel
+### Étape 3 : Application Temps Réel (SCOT Dashboard)
 Pour lancer l'interface de monitoring interactive :
 ```bash
-streamlit run app.py
+python -m streamlit run app.py
 ```
 
 ---
 
-## 🖥️ Interface Streamlit (ParticleScope Dashboard)
+## Interface SCOT Dashboard
 
-L'application Streamlit offre les fonctionnalités suivantes :
+L'application offre les fonctionnalités suivantes :
 - **Monitoring Auto-Refresh** : Surveille le dossier `data_camera/` et analyse automatiquement chaque nouvelle capture.
 - **Archive des Modèles** : Permet de basculer instantanément entre différentes versions de modèles entraînés.
 - **Diagnostic Détaillé** : Affiche les probabilités par classe et un indicateur visuel de confiance.
-- **Mode Simulation** : Possibilité de tester l'interface sans caméra réelle.
+- **Statistiques** : Analyse de la répartition des défauts détectés sur la session en cours.
 
 ---
 
-## 📊 Performances & Métriques
+## Performances & Métriques
 Après chaque entraînement, consultez le dossier `outputs/` pour :
 - `training_history.png` : Analyse de la convergence (Loss/Accuracy).
 - `confusion_matrix.png` : Analyse détaillée des erreurs par classe.
-- `classification_report.txt` : Précision, Rappel et F1-Score.
 
 ---
 *Développé dans le cadre du Projet Innovation SCOT.*
