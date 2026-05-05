@@ -170,7 +170,7 @@ def main():
                 image = Image.open(latest_file)
                 st.image(image, caption=f"Fichier : {os.path.basename(latest_file)}", use_container_width=True)
             with col_res:
-                st.subheader("Diagnostic IA")
+                st.subheader("Résultat de l'analyse")
                 with st.spinner('Analyse de l\'image...'):
                     tensor, img_pil = preprocess(latest_file, cfg.get("img_size", 128))
                     pred_class, probs, display_classes = predict(model, tensor, classes, device, original_img=img_pil)
