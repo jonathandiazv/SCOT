@@ -203,4 +203,4 @@ $$\text{Overfitting Penalty} = 0.5 \times \max\big(0,\, \text{Train Accuracy} - 
 
 This project is released under the **MIT License**.
 
-Developed as part of the **SCOT Innovation Project** to bring advanced deep learning algorithms into high-precision visual inspection systems.
+Developed as part of the **Innovation Project** during our 3 year masters in engeenering bring advanced deep learning algorithms into high-precision visual inspection systems.
