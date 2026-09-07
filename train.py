@@ -507,6 +507,9 @@ def main():
     # ── 4. Boucle d'entraînement ──
     history = {"train_loss": [], "val_loss": [], "train_acc": [], "val_acc": []}
     best_cccc_score = -float('inf')
+    best_val_acc = 0.0
+    best_versioned_path = "N/A"
+    best_default_path = os.path.join(cfg["output_dir"], "best_model.pth")
     
     # Dossier d'archivage
     archive_dir = os.path.join(cfg["output_dir"], "models_archive")
@@ -538,12 +541,15 @@ def main():
 
         if cccc_score > best_cccc_score:
             best_cccc_score = cccc_score
+            best_val_acc = vl_acc
             timestamp = datetime.now().strftime("%Y%m%d%H%M")
             cccc_int = int(max(0, cccc_score) * 10000)
             
             model_filename = f"MODEL_{cccc_int:04d}_{timestamp}.pth"
             versioned_path = os.path.join(archive_dir, model_filename)
+            best_versioned_path = versioned_path
             default_path = os.path.join(cfg["output_dir"], "best_model.pth")
+            best_default_path = default_path
 
             checkpoint = {
                 "model_state": model.state_dict(),
@@ -560,8 +566,8 @@ def main():
 
     # ── 5. Rapport final ──
     print(f"\n✓ Meilleure val accuracy : {best_val_acc:.1%}")
-    print(f"✓ Modèle archivé : {versioned_model_path}")
-    print(f"✓ Modèle par défaut mis à jour : {default_model_path}")
+    print(f"✓ Modèle archivé : {best_versioned_path}")
+    print(f"✓ Modèle par défaut mis à jour : {best_default_path}")
     print("\n── Rapport de classification ──")
     # Affiche précision, rappel et F1-score pour chaque classe
     print(classification_report(labels, preds, target_names=classes))
