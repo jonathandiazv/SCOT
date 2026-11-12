@@ -28,3 +28,9 @@ CREATE INDEX IX_Predictions_CreatedAt ON dbo.Predictions (CreatedAt DESC);
 IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE name = 'fn-scot-app')
 CREATE USER [fn-scot-app] FROM EXTERNAL PROVIDER;
 GRANT SELECT, INSERT ON dbo.Predictions TO [fn-scot-app];
+
+-- Identité managée de l'app Streamlit : lit et enregistre la correction experte
+IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE name = 'scot-inspection')
+CREATE USER [scot-inspection] FROM EXTERNAL PROVIDER;
+GRANT SELECT ON dbo.Predictions TO [scot-inspection];
+GRANT UPDATE (ValidatedClass, ValidatedBy, ValidatedAt, OperatorComment) ON dbo.Predictions TO [scot-inspection];

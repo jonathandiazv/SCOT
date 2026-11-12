@@ -1,0 +1,8 @@
+streamlit>=1.40
+pandas
+altair
+requests
+azure-identity
+azure-storage-blob
+pyodbc
+mssql-python
