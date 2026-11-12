@@ -170,14 +170,14 @@ def tab_history(df: pd.DataFrame):
         "Date": view["CreatedAt"].dt.tz_convert("Europe/Paris").dt.strftime("%d/%m %H:%M:%S"),
         "Fichier": view["BlobName"],
         "Détection": view["PredictedClass"].str.upper(),
-        "Confiance": view["Confidence"],
+        "Confiance": view["Confidence"] * 100,
         "Validation": view["ValidatedClass"].fillna("—").str.upper(),
         "Opérateur": view["ValidatedBy"].fillna(""),
     })
     event = st.dataframe(
         table, use_container_width=True, hide_index=True, on_select="rerun", selection_mode="single-row",
-        column_config={"Confiance": st.column_config.ProgressColumn("Confiance", format="%.0f%%",
-                                                                    min_value=0, max_value=1)},
+        column_config={"Confiance": st.column_config.ProgressColumn("Confiance", format="%.1f %%",
+                                                                    min_value=0, max_value=100)},
     )
     st.caption(f"{len(view)} analyse(s). Sélectionnez une ligne pour voir l'image et la valider.")
 
@@ -231,15 +231,15 @@ def tab_stats(df: pd.DataFrame):
         truth = validated[validated["ValidatedClass"] == c]
         if len(truth):
             rows.append({"Classe réelle": c, "Images": len(truth),
-                         "Rappel": (truth["PredictedClass"] == c).mean()})
+                         "Rappel": (truth["PredictedClass"] == c).mean() * 100})
     real_defects = validated[validated["ValidatedClass"].isin(DEFECT_CLASSES)]
     if len(real_defects):
         missed = (real_defects["PredictedClass"] == "sans_defaut").mean()
         st.metric("Défauts réels non détectés (prédits « sans_defaut »)", f"{missed:.0%}",
                   delta="objectif ≤ 10 %", delta_color="off")
     st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True,
-                 column_config={"Rappel": st.column_config.ProgressColumn("Rappel", format="%.0f%%",
-                                                                          min_value=0, max_value=1)})
+                 column_config={"Rappel": st.column_config.ProgressColumn("Rappel", format="%.0f %%",
+                                                                          min_value=0, max_value=100)})
     st.markdown("**Matrice de confusion (prédit × réel)**")
     st.dataframe(pd.crosstab(validated["ValidatedClass"], validated["PredictedClass"],
                              rownames=["Réel"], colnames=["Prédit"]), use_container_width=True)
@@ -271,12 +271,18 @@ def sidebar():
                                  key=f"uploader_{st.session_state.get('upload_round', 0)}")
         if files and st.button("Analyser", use_container_width=True):
             with st.spinner("Envoi vers Azure…"):
-                for f in files:
-                    scot_data.upload_image(f.name, f.getvalue(), f.type)
+                names = {scot_data.upload_image(f.name, f.getvalue(), f.type) for f in files}
             st.session_state["upload_round"] = st.session_state.get("upload_round", 0) + 1
-            st.toast(f"{len(files)} image(s) envoyée(s) — résultat dans quelques secondes.")
-            time.sleep(4)
+            with st.spinner("Analyse par l'IA en cours…"):
+                deadline = time.time() + 45   # Event Grid + Function : ~5 à 15 s (plus au démarrage à froid)
+                while time.time() < deadline:
+                    time.sleep(3)
+                    done = set(scot_data.fetch_predictions(limit=50)["BlobName"]) & names
+                    if done == names:
+                        break
             load_predictions.clear()
+            if done != names:
+                st.toast("Analyse plus longue que prévu : cliquez sur « Actualiser maintenant » dans un instant.")
             st.rerun()
 
         st.divider()

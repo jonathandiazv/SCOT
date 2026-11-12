@@ -77,6 +77,9 @@ def fetch_predictions(limit: int = 500) -> pd.DataFrame:
     if not df.empty:
         df["CreatedAt"] = pd.to_datetime(df["CreatedAt"], utc=True)
         df["Confidence"] = df["Confidence"].astype(float)
+        # Colonnes texte facultatives : None (et non NaN) quand elles sont vides
+        for c in ("ValidatedClass", "ValidatedBy", "OperatorComment", "ModelName", "BlobUrl"):
+            df[c] = df[c].astype(object).where(df[c].notna(), None)
     return df
 
 
