@@ -11,6 +11,7 @@ Lancer en local :  python -m streamlit run webapp/app.py   (après `az login`)
 import json
 import logging
 import os
+import threading
 import time
 
 import altair as alt
@@ -74,12 +75,50 @@ def load_predictions() -> pd.DataFrame:
     return scot_data.fetch_predictions(limit=500)
 
 
-@st.cache_data(ttl=60, show_spinner=False)
+class HealthMonitor:
+    """Interroge /api/health de la Function en arrière-plan, toutes les 2 minutes.
+
+    L'affichage lit le dernier résultat connu sans jamais attendre : quand la Function
+    est en veille, son réveil (rechargement du modèle de 45 Mo) prend 5 à 20 s.
+    """
+
+    def __init__(self, interval: int = 120):
+        self.status = {"status": "pending"}
+        self.interval = interval
+        threading.Thread(target=self._loop, daemon=True, name="scot-health").start()
+
+    def _loop(self):
+        while True:
+            try:
+                self.status = requests.get(FUNCTION_HEALTH_URL, timeout=60).json()
+            except Exception as e:  # noqa: BLE001
+                self.status = {"status": "error", "detail": str(e)}
+            time.sleep(self.interval)
+
+
+@st.cache_resource
+def health_monitor() -> HealthMonitor:
+    return HealthMonitor()
+
+
 def model_status() -> dict:
-    try:
-        return requests.get(FUNCTION_HEALTH_URL, timeout=60).json()
-    except Exception as e:  # noqa: BLE001
-        return {"status": "error", "detail": str(e)}
+    return health_monitor().status
+
+
+def prewarm() -> None:
+    """Réveille la Function et la base SQL en arrière-plan (au plus une fois par minute)."""
+    health_monitor()
+    if time.time() - st.session_state.get("prewarmed_at", 0) < 60:
+        return
+    st.session_state["prewarmed_at"] = time.time()
+
+    def warm_sql():
+        try:
+            scot_data.fetch_predictions(limit=1)
+        except Exception as e:  # noqa: BLE001
+            log.warning("Prechauffage SQL echoue : %s", e)
+
+    threading.Thread(target=warm_sql, daemon=True, name="scot-prewarm").start()
 
 
 def get_predictions():
@@ -284,6 +323,9 @@ def sidebar():
         if status.get("status") == "ok":
             st.success(f"En ligne : {status.get('model')}")
             st.caption("Inférence : Azure Function (ONNX, CPU)")
+        elif status.get("status") == "pending":
+            st.info("Vérification de la Function d'inférence…")
+            st.caption("Si elle est en veille, la première analyse prend 10 à 20 s de plus.")
         else:
             st.error("Function d'inférence injoignable")
             st.caption(str(status.get("detail", ""))[:200])
@@ -331,6 +373,7 @@ def login_page() -> bool:
     if "user" in st.session_state:
         return True
 
+    prewarm()  # pendant la saisie du mot de passe
     users = scot_auth.load_users()
     if not users and not scot_auth.running_on_azure():
         # En local, sans comptes configurés : accès direct pour développer

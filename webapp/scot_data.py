@@ -8,6 +8,7 @@ Authentification Entra ID partout, sans mot de passe :
 
 import os
 import struct
+import threading
 import time
 from datetime import datetime, timezone
 
@@ -64,15 +65,42 @@ COLUMNS = ["Id", "BlobName", "BlobUrl", "PredictedClass", "Confidence", "Probabi
            "ValidatedAt", "OperatorComment"]
 
 
+# Une seule connexion SQL partagée par toutes les sessions de l'app : ouvrir une connexion
+# (jeton Entra ID + TLS) coûte 1 à 4 s, la réutiliser ne coûte rien. Le verrou évite deux
+# requêtes simultanées sur la même connexion.
+_conn = None
+_conn_lock = threading.Lock()
+
+
+def _run(fn):
+    """Exécute fn(connexion). Si la connexion est cassée (pause de la base, coupure), la recrée une fois."""
+    global _conn
+    with _conn_lock:
+        for attempt in (1, 2):
+            if _conn is None:
+                _conn = _connect()
+            try:
+                return fn(_conn)
+            except Exception:  # noqa: BLE001
+                try:
+                    _conn.close()
+                except Exception:  # noqa: BLE001
+                    pass
+                _conn = None
+                if attempt == 2:
+                    raise
+
+
 def fetch_predictions(limit: int = 500) -> pd.DataFrame:
-    conn = _connect()
-    try:
+    def query(conn):
         cur = conn.cursor()
         cur.execute(f"SELECT TOP ({int(limit)}) {', '.join(COLUMNS)} "
                     "FROM dbo.Predictions ORDER BY CreatedAt DESC, Id DESC")
         rows = [tuple(r) for r in cur.fetchall()]
-    finally:
-        conn.close()
+        cur.close()
+        return rows
+
+    rows = _run(query)
     df = pd.DataFrame(rows, columns=COLUMNS)
     if not df.empty:
         df["CreatedAt"] = pd.to_datetime(df["CreatedAt"], utc=True)
@@ -84,16 +112,17 @@ def fetch_predictions(limit: int = 500) -> pd.DataFrame:
 
 
 def save_validation(pred_id: int, validated_class: str, operator: str, comment: str) -> None:
-    conn = _connect()
-    try:
-        conn.cursor().execute(
+    def update(conn):
+        cur = conn.cursor()
+        cur.execute(
             "UPDATE dbo.Predictions SET ValidatedClass = ?, ValidatedBy = ?, "
             "ValidatedAt = SYSUTCDATETIME(), OperatorComment = ? WHERE Id = ?",
             validated_class, operator or None, comment or None, int(pred_id),
         )
         conn.commit()
-    finally:
-        conn.close()
+        cur.close()
+
+    _run(update)
 
 
 def upload_image(filename: str, data: bytes, content_type: str | None = None) -> str:
