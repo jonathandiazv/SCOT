@@ -142,3 +142,8 @@ dataset/
 # Fichiers temporaires Office / macOS
 ~$*.xlsx
 .DS_Store
+
+# Veilleur caméra : configuration (contient le jeton SAS), journal et logs locaux
+camera/config.json
+camera/*.db
+camera/logs/

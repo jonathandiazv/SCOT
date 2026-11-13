@@ -1,0 +1,10 @@
+{
+  "dossier_images": "C:\\SCOT\\images_traitees",
+  "url_sas_conteneur": "A REMPLIR avec camera\\creer_jeton_camera.ps1",
+  "url_sante_function": "https://fn-scot-app-fnascbfubbeududg.francecentral-01.azurewebsites.net/api/health",
+  "balayage_secondes": 30,
+  "stabilite_secondes": 1.0,
+  "reveil_function_secondes": 300,
+  "journal": "camera_envoyees.db",
+  "fichier_log": "logs/scot_camera.log"
+}

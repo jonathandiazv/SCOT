@@ -19,6 +19,7 @@ import logging
 import os
 import struct
 import threading
+import time
 
 import azure.functions as func
 from azure.identity import DefaultAzureCredential
@@ -55,26 +56,49 @@ def get_model() -> OnnxClassifier:
         return _model
 
 
-def sql_connect():
+TRANSIENT_SQL = ("HYT00", "08S01", "08001", "40613", "40197", "40501", "49918", "timeout", "not currently available")
+
+
+def sql_connect(max_wait: int = 120):
+    """Connexion à la base. Serverless : en pause, elle met jusqu'à ~1 min à se réveiller.
+
+    On laisse 60 s au login (au lieu de 15 s par défaut) et on réessaie les erreurs
+    transitoires jusqu'à max_wait secondes au total.
+    """
     import pyodbc  # ODBC Driver 18 est préinstallé sur les images Python d'Azure Functions
 
-    token = _credential.get_token("https://database.windows.net/.default").token.encode("utf-16-le")
-    token_struct = struct.pack(f"<I{len(token)}s", len(token), token)
     conn_str = (
         "Driver={ODBC Driver 18 for SQL Server};"
         f"Server=tcp:{os.environ['SQL_SERVER']},1433;Database={os.environ['SQL_DATABASE']};"
-        "Encrypt=yes;TrustServerCertificate=no;Connection Timeout=60;"
+        "Encrypt=yes;TrustServerCertificate=no;"
     )
-    return pyodbc.connect(conn_str, attrs_before={1256: token_struct})  # 1256 = SQL_COPT_SS_ACCESS_TOKEN
+    deadline = time.monotonic() + max_wait
+    attempt = 0
+    while True:
+        attempt += 1
+        token = _credential.get_token("https://database.windows.net/.default").token.encode("utf-16-le")
+        token_struct = struct.pack(f"<I{len(token)}s", len(token), token)
+        try:
+            # timeout = délai de login ; 1256 = SQL_COPT_SS_ACCESS_TOKEN
+            return pyodbc.connect(conn_str, attrs_before={1256: token_struct}, timeout=60)
+        except pyodbc.Error as e:
+            transient = any(code in str(e) for code in TRANSIENT_SQL)
+            if not transient or time.monotonic() > deadline:
+                raise
+            logging.warning("Base SQL pas encore disponible (essai %d, réveil probable) : %s", attempt, e)
+            time.sleep(5)
 
 
 def save_prediction(blob_name: str, blob_url: str, res: dict) -> None:
+    """Insère la prédiction. Idempotent : si Event Grid redélivre la même image, pas de doublon."""
     with sql_connect() as conn:
         conn.cursor().execute(
-            """INSERT INTO dbo.Predictions
+            """IF NOT EXISTS (SELECT 1 FROM dbo.Predictions WITH (UPDLOCK, HOLDLOCK) WHERE BlobName = ?)
+               INSERT INTO dbo.Predictions
                (BlobName, BlobUrl, PredictedClass, Confidence, Probabilities, ModelName,
                 InferenceMs, ImageWidth, ImageHeight)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            blob_name,
             blob_name, blob_url, res["predicted_class"], res["confidence"],
             json.dumps(res["probabilities"]), res["model_name"], res["inference_ms"],
             res["width"], res["height"],

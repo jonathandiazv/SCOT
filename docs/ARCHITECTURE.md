@@ -53,6 +53,7 @@ flowchart LR
 | 6 | Function → SQL | Les fichiers qui ne sont pas des images sont ignorés. Sinon : prétraitement, inférence ONNX (~10 ms), puis `INSERT` d'une ligne dans `dbo.Predictions`. | identité managée de la Function, jeton Entra ID |
 | 7 | SQL → `scot-inspection` | L'app lit les 500 dernières prédictions (cache de 5 s, rafraîchissement auto toutes les 5 à 60 s en mode temps réel) et met à jour les colonnes de validation quand l'opérateur valide. | identité managée de l'app, jeton Entra ID |
 | 8 | Blob → navigateur | Le navigateur affiche l'image directement depuis son URL publique (`BlobUrl`). | lecture anonyme du conteneur |
+| C | PC du montage → Blob `blob-scot` | Chemin automatique, qui remplace les étapes 1-2. Le SDK caméra dépose chaque défaut découpé dans un dossier daté, sous le nom `P<plaque>_<défaut>_<YYMMDDHHMMSS>`. Le veilleur `camera/scot_camera.py` le détecte et l'envoie sous le même nom, puis la chaîne reprend à l'étape 3 (~7 s entre le dépôt et l'affichage). Voir §7 bis. | jeton SAS « création seule » (stratégie `camera`) |
 | A | Poste local | `train.py` entraîne le ResNet18 et sauvegarde `outputs/best_model.pth` + une archive `outputs/models_archive/MODEL_<score>_<date>.pth`. | — |
 | B | Poste local → Blob `models` | `export_onnx.py` convertit en `.onnx`, vérifie l'égalité des sorties PyTorch/ONNX, puis le fichier est déposé à la main avec `az storage blob upload`. Aucun redéploiement n'est nécessaire. | compte Entra ID de la personne |
 
@@ -174,7 +175,7 @@ Attention : à l'université, le navigateur et les outils en ligne de commande n
 
 | Conteneur | Accès public | Contenu | Écrit par | Lu par |
 |---|---|---|---|---|
-| `blob-scot` | lecture anonyme des blobs | images à analyser | app web, opérateurs, (caméra) | Function, navigateurs |
+| `blob-scot` | lecture anonyme des blobs | images à analyser | app web, veilleur caméra (jeton SAS), opérateurs | Function, navigateurs |
 | `models` | privé | `best_model.onnx` (44,8 Mo) | personne de l'équipe (az CLI) | Function |
 | `projetscot` | privé | paquets de déploiement de la Function (Flex) | déploiement | plateforme Functions |
 | `azure-webjobs-hosts`, `azure-webjobs-secrets` | privé | état interne et clés de la Function | plateforme Functions | plateforme Functions |
@@ -194,6 +195,30 @@ Accès aux données du compte (rôle **Storage Blob Data Contributor**) : Jonath
 | Schéma | EventGridSchema |
 | Réessais | 30 tentatives max., durée de vie de l'événement 24 h |
 | Dead-letter | conteneur `eventgrid-deadletter` du compte `projetscot` |
+
+## 7 bis. Acquisition automatique : veilleur caméra
+
+Le SDK caméra, développé par l'équipe, prend la photo, découpe chaque défaut en une image distincte et dépose ces images traitées dans un dossier rangé par date. Les images brutes vont dans un autre dossier, ignoré par la chaîne. Le veilleur `camera/scot_camera.py` tourne en continu sur le PC du montage :
+
+| Mécanisme | Détail |
+|---|---|
+| Détection | notifications Windows (`watchdog`, sous-dossiers inclus) + balayage complet toutes les 30 s + rattrapage au démarrage |
+| Nom accepté | `^P(\d+)_(\d+)_(\d{12})\.(png\|jpe?g\|bmp\|tiff?)$`, par exemple `P1_2_261113143005.png` = plaque 1, 2e défaut, 13/11/2026 14:30:05. Les autres fichiers sont ignorés, avec un avertissement dans le log |
+| Fichier complet | `.tmp` ignorés ; taille stable pendant 1 s et fichier lisible avant envoi |
+| Jamais deux fois | journal SQLite local des noms envoyés **et** envoi sans écrasement : Azure refuse un nom existant (code 403 « overwrite » avec ce jeton), et le veilleur le note « déjà présente » |
+| Réseau | réessais 2 s → 4 s → … → 5 min, sans perte (le fichier reste dans le dossier) |
+| Function éveillée | appel de `/api/health` toutes les 5 min |
+| Accès Azure | jeton SAS lié à la stratégie d'accès stockée `camera` du conteneur `blob-scot`, permission **création seule** (ni lecture, ni liste, ni écrasement, ni suppression — vérifié), valable 12 mois, révocable en supprimant la stratégie |
+| Lancement | tâche planifiée Windows « SCOT - Veilleur camera » à l'ouverture de session, sans fenêtre, relancée en cas d'arrêt |
+| Suivi | `camera/logs/scot_camera.log` (rotation 5 × 2 Mo) |
+
+Mesuré le 13/11/2026 avec un dossier simulé : **6,8 s** entre le dépôt dans le dossier et la ligne dans `dbo.Predictions`, Function éveillée.
+
+Côté Function, deux protections complètent le veilleur :
+- **Base en pause** : la Function attend jusqu'à 60 s le réveil de la base SQL, avec des réessais pendant 2 min au total, au lieu d'abandonner au bout de 15 s.
+- **Pas de doublon** : l'insertion est idempotente (`IF NOT EXISTS … BlobName`). Si Event Grid redélivre la même image, aucune ligne en double n'est créée.
+
+Installation et usage : `camera/README.md`.
 
 ## 8. Paramètres d'application
 
@@ -231,6 +256,9 @@ Les valeurs des paramètres secrets ne sont stockées que dans Azure (App Settin
 | `webapp/scot_data.py` | accès SQL (pyodbc + ODBC 18 sur Azure, mssql-python en local) et Blob ; une connexion SQL partagée et réutilisée (reconnexion automatique), réessais au réveil de la base | scot-inspection (ou local) | azure-identity, azure-storage-blob |
 | `webapp/run_local.ps1` | lance l'app en local avec le compte `az login` | poste local | — |
 | `scripts/sql_firewall_mon_ip.ps1` | ajoute ou met à jour la règle de pare-feu SQL de la personne connectée | poste local | Azure CLI |
+| `camera/scot_camera.py` | veilleur du dossier du SDK caméra : détection, contrôle du nom, envoi sans doublon, reprise réseau, réveil de la Function | PC du montage | watchdog, azure-storage-blob, requests |
+| `camera/creer_jeton_camera.ps1` | crée, renouvelle ou révoque le jeton SAS « création seule » et l'écrit dans `camera/config.json` | poste admin | Azure CLI |
+| `camera/installer_tache.ps1` | lancement automatique du veilleur à l'ouverture de session (tâche planifiée) | PC du montage | — |
 | `webapp/scot_auth.py` | empreinte et vérification des mots de passe (PBKDF2-SHA256, 300 000 itérations, sel aléatoire) | scot-inspection | bibliothèque standard |
 | `scripts/gerer_comptes.py` | lister, ajouter, réinitialiser, supprimer les comptes de l'app | poste local | Azure CLI |
 | `sql/schema.sql` | création de `dbo.Predictions`, index et droits (idempotent) | base SCOT | — |
@@ -277,7 +305,7 @@ az webapp deploy -g <groupe> -n scot-inspection --src-path webapp.zip --type zip
 
 - Le modèle n'a été entraîné que sur des images de simulation. `sans_defaut` est une règle (image entièrement noire), pas une classe apprise.
 - Temps de chargement : trois composants peuvent être en veille. L'app (plan F1, ~20 s pour afficher la page de connexion), la Function (Flex, 5 à 20 s pour recharger le modèle) et la base SQL (pause après 60 min, jusqu'à 1 min). Pour limiter l'attente, l'app réveille la Function et la base en arrière-plan dès l'affichage de la page de connexion, ne bloque jamais l'affichage sur l'état de la Function et réutilise sa connexion SQL (~0,04 s par requête au lieu de 2 s).
-- Il n'y a pas encore de chaîne caméra → Blob : les images sont envoyées à la main.
+- Le veilleur caméra est prêt et testé avec un dossier simulé. Il n'est pas encore installé sur le PC du montage, en attendant le SDK définitif.
 - Pas de CI/CD ni de script d'infrastructure : les ressources ont été créées en ligne de commande.
 
 La liste complète des tâches restantes est dans `TODO.txt`, à la racine du dossier projet.
