@@ -1,0 +1,30 @@
+# Thème SCOT : l'app suit automatiquement le mode clair ou sombre de l'appareil
+# (l'utilisateur peut aussi le forcer depuis le menu « ⋮ » > Settings).
+
+[client]
+toolbarMode = "minimal"
+showSidebarNavigation = false
+
+[browser]
+gatherUsageStats = false
+
+[server]
+headless = true
+
+[theme]
+baseRadius = "0.65rem"
+buttonRadius = "0.55rem"
+
+[theme.light]
+primaryColor = "#3563E9"
+backgroundColor = "#F3F5FA"
+secondaryBackgroundColor = "#EAEEF5"
+textColor = "#1B2433"
+borderColor = "#E1E6EF"
+
+[theme.dark]
+primaryColor = "#5B8CFF"
+backgroundColor = "#0B1120"
+secondaryBackgroundColor = "#1A2438"
+textColor = "#E5EAF2"
+borderColor = "#25334D"

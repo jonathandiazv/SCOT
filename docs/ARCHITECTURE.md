@@ -252,7 +252,11 @@ Les valeurs des paramètres secrets ne sont stockées que dans Azure (App Settin
 | `export_onnx.py` | export `.pth` → `.onnx` + comparaison PyTorch/ONNX | poste local | torch, onnx, onnxruntime |
 | `function/function_app.py` | déclencheur Event Grid `classify_image`, endpoint `/api/health`, écriture SQL | fn-scot-app | azure-functions, azure-identity, azure-storage-blob, pyodbc (ODBC Driver 18) |
 | `function/scot_inference.py` | prétraitement + inférence ONNX, sans PyTorch | fn-scot-app | onnxruntime, numpy, Pillow |
-| `webapp/app.py` | tableau de bord : inspection, historique, statistiques, envoi, validation | scot-inspection (ou local) | streamlit, pandas, altair, requests |
+| `webapp/app.py` | point d'entrée : page de connexion et navigation en haut de page (Inspection, Historique, Statistiques) | scot-inspection (ou local) | streamlit ≥ 1.50 |
+| `webapp/views.py` | les trois pages : KPI, image en direct, jauge de confiance, validation, historique filtrable avec miniatures et fenêtre de détail, statistiques et performance réelle | scot-inspection (ou local) | streamlit, pandas |
+| `webapp/ui.py` | design : palettes clair/sombre (suit le thème de l'appareil), cartes, KPI, badges, graphiques Plotly | scot-inspection (ou local) | plotly |
+| `webapp/services.py` | données (cache 5 s), envoi d'images, état de la Function en arrière-plan, préchauffage, logs Application Insights | scot-inspection (ou local) | requests, azure-monitor-opentelemetry |
+| `webapp/.streamlit/config.toml` | thèmes clair et sombre SCOT, barre d'outils réduite | scot-inspection (ou local) | — |
 | `webapp/scot_data.py` | accès SQL (pyodbc + ODBC 18 sur Azure, mssql-python en local) et Blob ; une connexion SQL partagée et réutilisée (reconnexion automatique), réessais au réveil de la base | scot-inspection (ou local) | azure-identity, azure-storage-blob |
 | `webapp/run_local.ps1` | lance l'app en local avec le compte `az login` | poste local | — |
 | `scripts/sql_firewall_mon_ip.ps1` | ajoute ou met à jour la règle de pare-feu SQL de la personne connectée | poste local | Azure CLI |
