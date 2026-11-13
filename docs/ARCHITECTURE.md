@@ -162,10 +162,13 @@ Créée avant ce travail, vide, utilisée par aucun code. À supprimer ou à ré
 | Règle | Adresse | Rôle |
 |---|---|---|
 | `AllowAllWindowsAzureIps` | 0.0.0.0 | autorise les services Azure (Function, App Service) |
-| `PC-<prénom.nom>` | IP publique du moment de chaque membre | accès local ; créée ou mise à jour par `scripts/sql_firewall_mon_ip.ps1` |
+| `Reseau-Universite-Jean-Monnet` | 161.3.0.0 – 161.3.255.255 | tout le réseau de l'université (plage FR-U-STETIENNE, registre RIPE) : accès depuis n'importe quel poste ou navigateur à l'école, y compris l'éditeur de requêtes du portail |
+| `PC-<prénom.nom>` | IP publique du moment de chaque membre | accès hors de l'école (maison, 4G) ; créée ou mise à jour par `scripts/sql_firewall_mon_ip.ps1` |
 
-Quand on change de réseau, il suffit de relancer le script (après `az login`) :
-`powershell -ExecutionPolicy Bypass -File scripts\sql_firewall_mon_ip.ps1`. Les 4 coéquipiers ont le rôle Contributor sur la souscription, ce qui leur permet de gérer leur propre règle.
+À l'école, rien à faire. Ailleurs, il suffit de relancer le script (après `az login`) :
+`powershell -ExecutionPolicy Bypass -File scripts\sql_firewall_mon_ip.ps1`, ou de cliquer sur « Autoriser l'IP » dans l'éditeur de requêtes du portail. Les 4 coéquipiers ont le rôle Contributor sur la souscription, ce qui leur permet de gérer leur propre règle.
+
+Attention : à l'université, le navigateur et les outils en ligne de commande ne sortent pas forcément par la même IP. La règle sur toute la plage couvre les deux. La connexion exige toujours un compte Entra ID autorisé sur la base, car l'authentification SQL par mot de passe est désactivée.
 
 ## 6. Stockage `projetscot`
 
@@ -250,7 +253,8 @@ Environnement local : Python 3.12 dans `.venv` (même version que sur Azure), Py
   - le blocage après 5 échecs est lié à la session du navigateur : recharger la page le réinitialise. La protection repose donc surtout sur des mots de passe longs et aléatoires ;
   - la connexion ne protège que l'app : les images de `blob-scot` restent accessibles à qui connaît leur URL exacte ;
   - le conteneur `blob-scot` est lisible publiquement (choix assumé) ;
-  - la règle `AllowAllWindowsAzureIps` ouvre SQL à tous les services Azure.
+  - la règle `AllowAllWindowsAzureIps` ouvre SQL à tous les services Azure ;
+  - la règle `Reseau-Universite-Jean-Monnet` ouvre SQL à tout le réseau du campus (choix assumé ; l'authentification Entra ID reste obligatoire).
 
 ## 11. Mettre à jour
 
