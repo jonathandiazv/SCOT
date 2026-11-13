@@ -264,16 +264,30 @@ def timeline(df: pd.DataFrame, height: int = 280) -> go.Figure:
     return fig
 
 
-def confidence_histogram(df: pd.DataFrame, height: int = 260) -> go.Figure:
-    """Nombre d'images par tranche de 10 % de confiance, colorées rouge / orange / vert."""
+def confidence_histogram(df: pd.DataFrame, height: int = 260, threshold: float | None = None) -> go.Figure:
+    """Nombre d'images par tranche de 10 % de confiance.
+
+    Sans seuil : rouge < 50 %, orange 50–80 %, vert au-delà. Avec seuil : vert = validation
+    automatique, orange = validation opérateur requise, et une ligne marque le seuil.
+    """
     p = pal()
     edges = list(range(0, 101, 10))
     counts = pd.cut(df["Confidence"] * 100, bins=edges, include_lowest=True, right=True).value_counts(sort=False)
     labels = [f"{a}–{b} %" for a, b in zip(edges[:-1], edges[1:])]
-    colors = [p["bad"] if a < 50 else p["warn"] if a < 80 else p["ok"] for a in edges[:-1]]
+    if threshold is None:
+        colors = [p["bad"] if a < 50 else p["warn"] if a < 80 else p["ok"] for a in edges[:-1]]
+    else:
+        colors = [p["ok"] if a >= threshold * 100 else p["warn"] for a in edges[:-1]]
     fig = go.Figure(go.Bar(x=labels, y=counts.values, marker=dict(color=colors), width=0.7,
                            hovertemplate="%{x} : %{y} image(s)<extra></extra>"))
+    if threshold is not None:
+        x = threshold * 10 - 0.5  # position du seuil sur l'axe des tranches (une tranche = 10 %)
+        fig.add_vline(x=x, line=dict(color=p["text"], width=2, dash="dash"),
+                      annotation=dict(text=f"seuil {threshold:.0%}", font=dict(color=p["text"]), yanchor="bottom"),
+                      annotation_position="top")
     _layout(fig, height)
+    if threshold is not None:
+        fig.update_layout(margin=dict(t=30))
     fig.update_xaxes(showgrid=False, tickangle=0, tickfont=dict(size=10))
     fig.update_yaxes(rangemode="tozero")
     return fig

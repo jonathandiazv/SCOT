@@ -34,3 +34,19 @@ IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE name = 'scot-inspecti
 CREATE USER [scot-inspection] FROM EXTERNAL PROVIDER;
 GRANT SELECT ON dbo.Predictions TO [scot-inspection];
 GRANT UPDATE (ValidatedClass, ValidatedBy, ValidatedAt, OperatorComment) ON dbo.Predictions TO [scot-inspection];
+
+-- Paramètres réglables depuis l'app (page Administration), ex. le seuil de validation
+IF OBJECT_ID('dbo.AppSettings') IS NULL
+CREATE TABLE dbo.AppSettings (
+    Name      NVARCHAR(100) PRIMARY KEY,
+    Value     NVARCHAR(400) NOT NULL,
+    UpdatedBy NVARCHAR(200) NULL,
+    UpdatedAt DATETIME2     NOT NULL DEFAULT SYSUTCDATETIME()
+);
+
+-- Seuil de confiance : au-dessus, la prédiction est validée automatiquement ;
+-- en dessous, un opérateur doit la valider. 0.90 = 90 %.
+IF NOT EXISTS (SELECT 1 FROM dbo.AppSettings WHERE Name = 'ConfidenceThreshold')
+INSERT INTO dbo.AppSettings (Name, Value, UpdatedBy) VALUES ('ConfidenceThreshold', '0.90', 'initialisation');
+
+GRANT SELECT, UPDATE ON dbo.AppSettings TO [scot-inspection];

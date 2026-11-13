@@ -3,7 +3,8 @@ SCOT — Comptes utilisateurs de l'app web.
 
 Les comptes sont stockés dans le paramètre d'application SCOT_USERS (App Settings
 Azure), au format JSON :
-    {"arthur.col": {"name": "Arthur Col", "hash": "pbkdf2_sha256$300000$<sel>$<empreinte>"}}
+    {"arthur.col": {"name": "Arthur Col", "hash": "pbkdf2_sha256$300000$<sel>$<empreinte>", "role": "operateur"}}
+Rôles : « operateur » (par défaut) ou « admin » (page Administration en plus).
 
 Aucun mot de passe n'est stocké en clair : seulement une empreinte PBKDF2-SHA256
 salée. Gestion des comptes : scripts/gerer_comptes.py.
@@ -16,6 +17,7 @@ import json
 import os
 import secrets
 
+ROLES = ("operateur", "admin")  # admin : accès en plus à la page Administration
 ALGO = "pbkdf2_sha256"
 ITERATIONS = 300_000
 
@@ -60,7 +62,9 @@ def authenticate(username: str, password: str) -> dict | None:
         verify_password(password or "", hash_password("leurre", ITERATIONS))
         return None
     if verify_password(password or "", user.get("hash", "")):
-        return {"username": username, "name": user.get("name") or username}
+        role = user.get("role", "operateur")
+        return {"username": username, "name": user.get("name") or username,
+                "role": role if role in ROLES else "operateur"}
     return None
 
 

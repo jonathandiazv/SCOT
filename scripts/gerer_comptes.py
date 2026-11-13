@@ -14,6 +14,8 @@ Exemples (depuis le dossier scot-projet-innovation) :
   .venv\\Scripts\\python scripts\\gerer_comptes.py ajouter prof.dupont --nom "Marie Dupont" --choisir-mdp
   .venv\\Scripts\\python scripts\\gerer_comptes.py reinitialiser arthur.col
   .venv\\Scripts\\python scripts\\gerer_comptes.py supprimer prof.dupont
+  .venv\\Scripts\\python scripts\\gerer_comptes.py role arthur.col admin       # ou : operateur
+  .venv\\Scripts\\python scripts\\gerer_comptes.py ajouter chef.atelier --nom "Chef Atelier" --admin
 
 Par défaut, un mot de passe aléatoire est généré et affiché UNE seule fois :
 transmettez-le à la personne (en main propre ou par message privé).
@@ -105,7 +107,7 @@ def cmd_lister(args) -> None:
     if not users:
         print("Aucun compte.")
     for u, info in sorted(users.items()):
-        print(f"{u:<28} {info.get('name', '')}")
+        print(f"{u:<28} {info.get('name', ''):<28} {info.get('role', 'operateur')}")
 
 
 def cmd_ajouter(args) -> None:
@@ -116,9 +118,20 @@ def cmd_ajouter(args) -> None:
     if ident in users:
         sys.exit(f"Le compte {ident} existe déjà (utilisez « reinitialiser » pour changer son mot de passe).")
     password = new_password(args)
-    users[ident] = {"name": args.nom.strip(), "hash": hash_password(password)}
+    users[ident] = {"name": args.nom.strip(), "hash": hash_password(password),
+                    "role": "admin" if args.admin else "operateur"}
     save_users(users)
     deliver(ident, password, args)
+
+
+def cmd_role(args) -> None:
+    ident = args.identifiant.strip().lower()
+    users = load_users()
+    if ident not in users:
+        sys.exit(f"Compte {ident} introuvable.")
+    users[ident]["role"] = args.role
+    save_users(users)
+    print(f"✓ {ident} a maintenant le rôle « {args.role} ».")
 
 
 def cmd_reinitialiser(args) -> None:
@@ -151,7 +164,13 @@ def main() -> None:
     a = sub.add_parser("ajouter", help="crée un compte")
     a.add_argument("identifiant", help="ex. prenom.nom")
     a.add_argument("--nom", required=True, help='nom affiché, ex. "Marie Dupont"')
+    a.add_argument("--admin", action="store_true", help="donne accès à la page Administration")
     a.set_defaults(func=cmd_ajouter)
+
+    ro = sub.add_parser("role", help="change le rôle d'un compte (operateur ou admin)")
+    ro.add_argument("identifiant")
+    ro.add_argument("role", choices=["operateur", "admin"])
+    ro.set_defaults(func=cmd_role)
 
     r = sub.add_parser("reinitialiser", help="donne un nouveau mot de passe")
     r.add_argument("identifiant")

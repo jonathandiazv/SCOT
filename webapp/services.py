@@ -83,6 +83,52 @@ def upload_and_wait(files, timeout: int = 45) -> tuple[set, set]:
     return names, done
 
 
+# ── Seuil de validation automatique ─────────────────────────
+DEFAULT_THRESHOLD = 0.90
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def threshold_info() -> dict:
+    """Seuil de confiance : au-dessus, validation automatique ; en dessous, un opérateur doit valider."""
+    try:
+        row = scot_data.get_setting("ConfidenceThreshold")
+        if row:
+            return {"value": float(row[0]), "by": row[1], "at": row[2]}
+    except Exception as e:  # noqa: BLE001
+        log.warning("Lecture du seuil impossible, valeur par défaut utilisée : %s", e)
+    return {"value": DEFAULT_THRESHOLD, "by": None, "at": None}
+
+
+def threshold() -> float:
+    return threshold_info()["value"]
+
+
+def set_threshold(value: float) -> None:
+    user = st.session_state["user"]
+    old = threshold()
+    scot_data.set_setting("ConfidenceThreshold", f"{value:.2f}", user["name"])
+    log.info("Seuil de validation modifie %.2f -> %.2f par %s", old, value, user["username"])
+    threshold_info.clear()
+
+
+def status_of(row, thr: float) -> str:
+    """Statut de validation d'une prédiction."""
+    v = row["ValidatedClass"]
+    if v:
+        return "confirmee" if v == row["PredictedClass"] else "corrigee"
+    return "auto" if row["Confidence"] >= thr else "a_valider"
+
+
+STATUS_LABELS = {"a_valider": "À valider", "auto": "Validée auto", "confirmee": "Confirmée", "corrigee": "Corrigée"}
+
+
+def with_status(df: pd.DataFrame) -> pd.DataFrame:
+    thr = threshold()
+    if df.empty:
+        return df.assign(Statut=pd.Series(dtype=str))
+    return df.assign(Statut=df.apply(lambda r: status_of(r, thr), axis=1))
+
+
 # ── État de la Function d'inférence ─────────────────────────
 class HealthMonitor:
     """Interroge /api/health en arrière-plan toutes les 2 min ; l'affichage n'attend jamais."""

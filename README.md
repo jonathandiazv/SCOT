@@ -86,6 +86,7 @@ python scripts\gerer_comptes.py lister
 python scripts\gerer_comptes.py ajouter prenom.nom --nom "Prénom Nom"    # mot de passe affiché une seule fois
 python scripts\gerer_comptes.py reinitialiser prenom.nom
 python scripts\gerer_comptes.py supprimer prenom.nom
+python scripts\gerer_comptes.py role prenom.nom admin                  # accès à la page Administration (ou : operateur)
 ```
 
 **Installer le veilleur sur le PC du montage** : voir [`camera/README.md`](camera/README.md).

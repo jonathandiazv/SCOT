@@ -136,6 +136,31 @@ Indicateurs calculés par l'app à partir de cette table (onglet Statistiques) :
 
 Contenu au 12/11/2026 : 3 lignes de test (Id 1 à 3), à supprimer.
 
+**Statut de validation** (calculé par l'app, non stocké) :
+| Statut | Condition |
+|---|---|
+| Validée auto | pas de validation opérateur et `Confidence` ≥ seuil (`AppSettings.ConfidenceThreshold`, 90 % par défaut) |
+| À valider | pas de validation opérateur et `Confidence` < seuil : **un opérateur doit valider** |
+| Confirmée | `ValidatedClass` = `PredictedClass` |
+| Corrigée | `ValidatedClass` ≠ `PredictedClass` |
+
+Les mesures de performance réelle (rappel, défauts non détectés, matrice de confusion) n'utilisent que les validations faites par un opérateur.
+
+### 5.1 bis Table `dbo.AppSettings` — paramètres réglables depuis l'app
+
+| Colonne | Type SQL | Contenu |
+|---|---|---|
+| `Name` | `NVARCHAR(100)`, clé primaire | nom du paramètre |
+| `Value` | `NVARCHAR(400)` | valeur (texte) |
+| `UpdatedBy` | `NVARCHAR(200)` | nom de la personne qui l'a modifié |
+| `UpdatedAt` | `DATETIME2` | heure UTC de la modification |
+
+| Paramètre | Valeur initiale | Rôle | Modifié depuis |
+|---|---|---|---|
+| `ConfidenceThreshold` | `0.90` | seuil de validation automatique | page **Administration** de l'app (comptes admin), avec aperçu de l'impact |
+
+L'app relit le seuil toutes les 30 s ; chaque changement est enregistré dans Application Insights.
+
 ### 5.2 Table `dbo.DonneesStrioscopie` — non alimentée
 
 Créée avant ce travail, vide, utilisée par aucun code. À supprimer ou à réutiliser pour les paramètres d'acquisition (voir `TODO.txt`).
@@ -156,7 +181,7 @@ Créée avant ce travail, vide, utilisée par aucun code. À supprimer ou à ré
 | `jonathan.diaz.vreys@…` | administrateur Entra ID du serveur | tous |
 | `arthur.col@…`, `enzo.garbi@…`, `hugo.soysouvanh@…`, `tanka.janet.maitre@…` | utilisateurs Entra ID | `db_datareader`, `db_datawriter` (lecture et écriture de toutes les tables) |
 | `fn-scot-app` | identité managée de la Function | `SELECT`, `INSERT` sur `dbo.Predictions` |
-| `scot-inspection` | identité managée de l'app | `SELECT` sur `dbo.Predictions` ; `UPDATE` limité à `ValidatedClass`, `ValidatedBy`, `ValidatedAt`, `OperatorComment` |
+| `scot-inspection` | identité managée de l'app | `SELECT` sur `dbo.Predictions` ; `UPDATE` limité à `ValidatedClass`, `ValidatedBy`, `ValidatedAt`, `OperatorComment` ; `SELECT`, `UPDATE` sur `dbo.AppSettings` |
 
 ### 5.4 Pare-feu du serveur SQL
 
@@ -277,9 +302,9 @@ Environnement local : Python 3.12 dans `.venv` (même version que sur Azure), Py
 - **Supervision** : Application Insights sur la Function (`fn-scot-app`) et sur l'app (`appi-scot-inspection` : envois d'images, validations, erreurs SQL).
 - **Coûts** : budget `budget-scot-mensuel` (20 par mois), avec une alerte à 80 % de dépense réelle et une à 100 % de dépense prévue, envoyées à Jonathan et aux Owners. Le crédit restant se consulte sur https://www.microsoftazuresponsorships.com/balance.
 - **Connexion à l'app** : page de connexion avec un compte par personne (identifiant `prenom.nom`). Les mots de passe sont stockés uniquement sous forme d'empreinte PBKDF2-SHA256 salée dans le paramètre `SCOT_USERS`. Après 5 échecs, le formulaire est bloqué 60 s, et chaque connexion (réussie ou refusée) est enregistrée dans Application Insights. La validation d'une prédiction est enregistrée au nom de l'utilisateur connecté. En local sans `SCOT_USERS`, l'app s'ouvre sans connexion pour faciliter le développement.
-- **Comptes existants** : `jonathan.diaz-vreys`, `arthur.col`, `enzo.garbi`, `hugo.soysouvanh`, `tanka.janet-maitre`, `maxime.maurin`, `admin` (compte partagé « Administrateur SCOT », sans droits supplémentaires dans l'app).
+- **Comptes existants** : `jonathan.diaz-vreys`, `arthur.col`, `enzo.garbi`, `hugo.soysouvanh`, `tanka.janet-maitre`, `maxime.maurin` (rôle opérateur) et `admin` (« Administrateur SCOT », rôle **admin** : accès en plus à la page Administration, où se règle le seuil de validation automatique).
 - **Gérer les comptes** (une modification redémarre l'app, ~30 s) :
-  `.venv\Scripts\python scripts\gerer_comptes.py lister | ajouter <identifiant> --nom "Prénom Nom" | reinitialiser <identifiant> | supprimer <identifiant>`
+  `.venv\Scripts\python scripts\gerer_comptes.py lister | ajouter <identifiant> --nom "Prénom Nom" | reinitialiser <identifiant> | supprimer <identifiant> | role <identifiant> admin|operateur`
 - **Points ouverts** :
   - la connexion Entra ID d'App Service (comptes universitaires) n'est pas possible : elle demande une inscription d'application, que les étudiants ne peuvent pas créer dans le tenant de l'université (`allowedToCreateApps = false`) ;
   - le blocage après 5 échecs est lié à la session du navigateur : recharger la page le réinitialise. La protection repose donc surtout sur des mots de passe longs et aléatoires ;

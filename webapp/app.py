@@ -77,7 +77,7 @@ def main() -> None:
     if "user" not in st.session_state:
         if not scot_auth.load_users() and not scot_auth.running_on_azure():
             # En local, sans comptes configurés : accès direct pour développer
-            st.session_state["user"] = {"username": "local", "name": "Développeur local"}
+            st.session_state["user"] = {"username": "local", "name": "Développeur local", "role": "admin"}
         else:
             st.navigation([st.Page(login_page, title="Connexion", icon=":material/lock:")], position="hidden").run()
             return
@@ -88,6 +88,9 @@ def main() -> None:
         st.Page(views.page_history, title="Historique", icon=":material/history:", url_path="historique"),
         st.Page(views.page_stats, title="Statistiques", icon=":material/monitoring:", url_path="statistiques"),
     ]
+    if st.session_state["user"].get("role") == "admin":
+        pages.append(st.Page(views.page_admin, title="Administration", icon=":material/admin_panel_settings:",
+                             url_path="administration"))
     st.navigation(pages, position="top").run()
 
 

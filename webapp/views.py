@@ -95,26 +95,45 @@ def result_block(row, key: str) -> None:
             ui.show(ui.proba_bars(probs), key=f"p-{key}")
 
 
-def validation_block(row, key: str) -> None:
+def validation_form(row, key: str) -> None:
     validated = row["ValidatedClass"]
-    if validated:
-        same = validated == row["PredictedClass"]
-        status = ui.chip("Confirmé" if same else f"Corrigé en {LABELS.get(validated, validated)}", "ok" if same else "warn")
-    else:
-        status = ui.chip("À valider", "idle")
-    with card(f"valid-{key}", "Validation opérateur", "Confirmez ou corrigez la classe prédite", right_html=status):
-        with st.form(f"form-{key}-{row['Id']}", border=False):
-            current = validated or row["PredictedClass"]
-            choice = st.segmented_control("Classe réelle", CLASSES, format_func=LABELS.get,
-                                          default=current if current in CLASSES else None, required=True)
-            comment = st.text_input("Commentaire (optionnel)", value=row["OperatorComment"] or "")
-            if st.form_submit_button("Enregistrer la validation", type="primary", icon=":material/check:", width="stretch"):
-                sv.save_validation(row, choice, comment)
-                st.toast("Validation enregistrée", icon="✅")
-                time.sleep(0.4)
-                st.rerun()
-        if validated:
-            st.caption(f"Dernière validation : {row['ValidatedBy'] or '—'}")
+    with st.form(f"form-{key}-{row['Id']}", border=False):
+        current = validated or row["PredictedClass"]
+        choice = st.segmented_control("Classe réelle", CLASSES, format_func=LABELS.get,
+                                      default=current if current in CLASSES else None, required=True)
+        comment = st.text_input("Commentaire (optionnel)", value=row["OperatorComment"] or "")
+        if st.form_submit_button("Enregistrer la validation", type="primary", icon=":material/check:", width="stretch"):
+            sv.save_validation(row, choice, comment)
+            st.toast("Validation enregistrée", icon="✅")
+            time.sleep(0.4)
+            st.rerun()
+
+
+def validation_block(row, key: str) -> None:
+    """Au-dessus du seuil : validée automatiquement (correction possible). En dessous : validation requise."""
+    thr = sv.threshold()
+    status = sv.status_of(row, thr)
+    validated = row["ValidatedClass"]
+    chips = {
+        "a_valider": ui.chip(f"Validation requise · confiance < {thr:.0%}", "bad"),
+        "auto": ui.chip(f"Validée automatiquement · confiance ≥ {thr:.0%}", "ok"),
+        "confirmee": ui.chip(f"Confirmée par {row['ValidatedBy'] or 'un opérateur'}", "ok"),
+        "corrigee": ui.chip(f"Corrigée en {LABELS.get(validated, validated)} par {row['ValidatedBy'] or 'un opérateur'}",
+                            "warn"),
+    }
+    subtitle = {
+        "a_valider": "La confiance du modèle est trop faible : confirmez ou corrigez la classe.",
+        "auto": "La confiance dépasse le seuil : aucune action n'est nécessaire.",
+        "confirmee": "Un opérateur a confirmé la classe prédite.",
+        "corrigee": "Un opérateur a corrigé la classe prédite.",
+    }[status]
+    with card(f"valid-{key}", "Validation opérateur", subtitle, right_html=chips[status]):
+        if status == "a_valider":
+            validation_form(row, key)
+        else:
+            with st.expander("Corriger la classe" if status == "auto" else "Modifier la validation",
+                             icon=":material/edit:"):
+                validation_form(row, key)
 
 
 def image_block(row, key: str) -> None:
@@ -136,10 +155,11 @@ def page_inspection() -> None:
         if err:
             db_error(err)
             return
+        df = sv.with_status(df)
         p = ui.pal()
         today = df[df["Local"].dt.date == sv.now_local().date()] if not df.empty else df
         defects = today[today["PredictedClass"].isin(DEFECT_CLASSES)]
-        todo = df[df["ValidatedClass"].isna()]
+        todo = df[df["Statut"] == "a_valider"]
         recent = df.head(50)
 
         k = st.columns(4)
@@ -149,7 +169,8 @@ def page_inspection() -> None:
             kpi("Défauts détectés aujourd'hui", f"{len(defects)}", "alert", "#F97316",
                 f"{len(defects) / len(today):.0%} des images" if len(today) else "—")
         with k[2]:
-            kpi("À valider", f"{len(todo)}", "clipboard", "#8B5CF6", "prédictions sans validation opérateur")
+            kpi("À valider", f"{len(todo)}", "clipboard", p["bad"] if len(todo) else "#8B5CF6",
+                f"confiance < {sv.threshold():.0%}, en attente d'un opérateur")
         with k[3]:
             avg = recent["Confidence"].mean() if len(recent) else 0
             ms = recent["InferenceMs"].mean() if len(recent) else 0
@@ -203,23 +224,22 @@ def page_history() -> None:
     if err:
         db_error(err)
         return
+    df = sv.with_status(df)
 
-    with card("filters", "Filtres"):
-        c1, c2, c3, c4 = st.columns([1.55, 1.6, 1, 1.1], vertical_alignment="bottom")
-        status = c1.segmented_control("Statut", ["Toutes", "À valider", "Validées", "Corrigées"], default="Toutes",
-                                      required=True)
+    with card("filters", "Filtres", f"Seuil de validation automatique : {sv.threshold():.0%}"):
+        c1, c2 = st.columns([1.35, 1], vertical_alignment="bottom")
+        status = c1.segmented_control("Statut", ["toutes", *sv.STATUS_LABELS],
+                                      format_func=lambda s: "Toutes" if s == "toutes" else sv.STATUS_LABELS[s],
+                                      default="toutes", required=True)
         classes = c2.pills("Classe prédite", CLASSES, format_func=LABELS.get, selection_mode="multi", default=CLASSES)
+        c3, c4 = st.columns([1, 1.35], vertical_alignment="bottom")
         min_conf = c3.slider("Confiance minimale", 0, 100, 0, step=5, format="%d %%")
         search = c4.text_input("Rechercher", placeholder="Nom de fichier, P1_…", label_visibility="visible")
     st.write("")
 
     view = df[df["PredictedClass"].isin(classes or CLASSES) & (df["Confidence"] * 100 >= min_conf)]
-    if status == "À valider":
-        view = view[view["ValidatedClass"].isna()]
-    elif status == "Validées":
-        view = view[view["ValidatedClass"].notna()]
-    elif status == "Corrigées":
-        view = view[view["ValidatedClass"].notna() & (view["ValidatedClass"] != view["PredictedClass"])]
+    if status != "toutes":
+        view = view[view["Statut"] == status]
     if search:
         view = view[view["BlobName"].str.contains(search, case=False, regex=False)]
 
@@ -229,7 +249,8 @@ def page_history() -> None:
         "Plaque": view["BlobName"].map(plate_label),
         "Détection": view["PredictedClass"].map(LABELS),
         "Confiance": view["Confidence"] * 100,
-        "Validation": view["ValidatedClass"].map(lambda v: LABELS.get(v, "À valider") if v else "À valider"),
+        "Statut": view.apply(lambda r: f"Corrigée → {LABELS.get(r['ValidatedClass'], r['ValidatedClass'])}"
+                             if r["Statut"] == "corrigee" else sv.STATUS_LABELS[r["Statut"]], axis=1),
         "Opérateur": view["ValidatedBy"].fillna(""),
         "Fichier": view["BlobName"],
     })
@@ -267,19 +288,22 @@ def page_stats() -> None:
         return
 
     p = ui.pal()
+    df = sv.with_status(df)
+    thr = sv.threshold()
     validated = df[df["ValidatedClass"].notna()]
     corrected = validated[validated["ValidatedClass"] != validated["PredictedClass"]]
+    auto = df[df["Statut"] == "auto"]
     k = st.columns(4)
     with k[0]:
         kpi("Images analysées", f"{len(df)}", "image", p["accent"], f"depuis le {df['Local'].min():%d/%m/%Y}")
     with k[1]:
-        kpi("Validées par un opérateur", f"{len(validated)}", "check", p["ok"],
-            f"{len(validated) / len(df):.0%} des analyses")
+        kpi("Validées automatiquement", f"{len(auto) / len(df):.0%}", "zap", p["ok"],
+            f"{len(auto)} image(s) avec confiance ≥ {thr:.0%}")
     with k[2]:
-        kpi("Taux de correction", f"{len(corrected) / len(validated):.0%}" if len(validated) else "—", "pencil",
-            "#F97316", "prédictions corrigées par l'opérateur")
+        kpi("Validées par un opérateur", f"{len(validated)}", "check", "#8B5CF6",
+            f"dont {len(corrected)} corrigée(s) · {len(corrected) / len(validated):.0%}" if len(validated) else "aucune")
     with k[3]:
-        kpi("Inférence moyenne", f"{df['InferenceMs'].mean():.0f} ms", "zap", "#8B5CF6", "par image, sur Azure")
+        kpi("Inférence moyenne", f"{df['InferenceMs'].mean():.0f} ms", "gauge", "#F97316", "par image, sur Azure")
     st.write("")
 
     c1, c2 = st.columns([1, 2], gap="medium")
@@ -313,3 +337,63 @@ def page_stats() -> None:
     if not validated.empty:
         with card("confusion", "Matrice de confusion", "Classe réelle (validée) × classe prédite"):
             ui.show(ui.confusion_heatmap(validated), key="cm")
+
+
+# ── Page 4 : administration (rôle admin) ────────────────────
+def page_admin() -> None:
+    df, err = sv.get_predictions()
+    toolbar("Administration", "Réglages de la chaîne d'inspection", df)
+    if st.session_state["user"].get("role") != "admin":
+        st.error("Cette page est réservée aux administrateurs.")
+        return
+    if err:
+        db_error(err)
+        return
+
+    p = ui.pal()
+    info = sv.threshold_info()
+    current = info["value"]
+    changed = (f"Modifié par {info['by']} le {info['at']:%d/%m/%Y à %H:%M} (UTC)"
+               if info["by"] and info["at"] else "Valeur par défaut")
+
+    left, right = st.columns([1, 1.4], gap="medium")
+    with left, card("threshold", "Seuil de validation automatique", changed):
+        st.markdown(
+            f"Une prédiction dont la confiance est **supérieure ou égale** au seuil est **validée automatiquement**. "
+            f"En dessous, un opérateur **doit** la valider.")
+        new = st.slider("Nouveau seuil", min_value=50, max_value=99, value=int(round(current * 100)), step=1,
+                        format="%d %%", key="threshold_slider") / 100
+        if df.empty:
+            st.caption("Pas encore d'analyses pour estimer l'impact.")
+        else:
+            now_todo = (df["Confidence"] < current).mean()
+            new_todo = (df["Confidence"] < new).mean()
+            a, b = st.columns(2)
+            a.metric(f"À valider avec le seuil actuel ({current:.0%})", f"{now_todo:.0%}")
+            diff = (new_todo - now_todo) * 100
+            b.metric(f"À valider avec le nouveau seuil ({new:.0%})", f"{new_todo:.0%}",
+                     delta=f"{diff:+.0f} pts" if abs(diff) >= 0.5 else None, delta_color="inverse")
+            st.caption(f"Calculé sur les {len(df)} dernières analyses.")
+        if st.button(f"Appliquer le seuil de {new:.0%}", type="primary", icon=":material/save:", width="stretch",
+                     disabled=abs(new - current) < 0.005):
+            sv.set_threshold(new)
+            st.toast(f"Seuil enregistré : {new:.0%}", icon="✅")
+            time.sleep(0.4)
+            st.rerun()
+    with right, card("threshold-hist", "Répartition de la confiance",
+                     "Vert : validée automatiquement · orange : validation opérateur requise"):
+        if not df.empty:
+            ui.show(ui.confidence_histogram(df, height=300, threshold=new), key="admin-hist")
+    st.write("")
+
+    with card("accounts", "Comptes de l'application",
+              "Gestion : python scripts/gerer_comptes.py (ajouter, reinitialiser, role, supprimer)"):
+        import scot_auth
+        users = scot_auth.load_users()
+        if not users:
+            st.info("Aucun compte configuré ici (normal en local : les comptes sont sur Azure).", icon=":material/info:")
+            return
+        st.dataframe(pd.DataFrame([{"Identifiant": u, "Nom": i.get("name", ""),
+                                    "Rôle": "Administrateur" if i.get("role") == "admin" else "Opérateur"}
+                                   for u, i in sorted(users.items())]),
+                     hide_index=True, width="stretch")

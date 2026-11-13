@@ -125,6 +125,27 @@ def save_validation(pred_id: int, validated_class: str, operator: str, comment: 
     _run(update)
 
 
+def get_setting(name: str) -> tuple[str, str | None, object] | None:
+    """(valeur, modifié par, modifié le) d'un paramètre de dbo.AppSettings, ou None."""
+    def query(conn):
+        cur = conn.cursor()
+        cur.execute("SELECT Value, UpdatedBy, UpdatedAt FROM dbo.AppSettings WHERE Name = ?", name)
+        r = cur.fetchone()
+        cur.close()
+        return tuple(r) if r else None
+    return _run(query)
+
+
+def set_setting(name: str, value: str, updated_by: str) -> None:
+    def update(conn):
+        cur = conn.cursor()
+        cur.execute("UPDATE dbo.AppSettings SET Value = ?, UpdatedBy = ?, UpdatedAt = SYSUTCDATETIME() "
+                    "WHERE Name = ?", value, updated_by, name)
+        conn.commit()
+        cur.close()
+    _run(update)
+
+
 def upload_image(filename: str, data: bytes, content_type: str | None = None) -> str:
     """Dépose l'image dans blob-scot : Event Grid déclenche alors la Function d'inférence."""
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
