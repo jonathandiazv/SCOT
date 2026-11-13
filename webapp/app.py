@@ -18,6 +18,7 @@ import pandas as pd
 import requests
 import streamlit as st
 
+import scot_auth
 import scot_data
 
 
@@ -128,17 +129,15 @@ def result_card(row):
 
 def validation_form(row, key: str):
     """Correction experte : l'opérateur confirme ou corrige la classe prédite."""
-    operator = st.session_state.get("operator", "")
+    operator = st.session_state["user"]["name"]
     with st.form(f"validate_{key}_{row['Id']}", border=True):
         st.markdown("**Validation opérateur**")
         current = row["ValidatedClass"] or row["PredictedClass"]
         choice = st.radio("Classe réelle", CLASSES, index=CLASSES.index(current) if current in CLASSES else 0,
                           horizontal=True)
         comment = st.text_input("Commentaire (optionnel)", value=row["OperatorComment"] or "")
+        st.caption(f"Enregistrée au nom de : {operator}")
         if st.form_submit_button("Enregistrer la validation"):
-            if not operator:
-                st.warning("Renseignez votre nom d'opérateur dans la barre latérale.")
-                return
             scot_data.save_validation(row["Id"], choice, operator, comment)
             log.info("Validation prediction=%s predite=%s reelle=%s operateur=%s",
                      row["Id"], row["PredictedClass"], choice, operator)
@@ -273,7 +272,12 @@ def sidebar():
         st.divider()
 
         st.subheader("Opérateur")
-        st.text_input("Nom", key="operator", placeholder="Prénom NOM")
+        user = st.session_state["user"]
+        st.markdown(f"Connecté : **{user['name']}**")
+        if st.button("Se déconnecter", use_container_width=True):
+            log.info("Deconnexion utilisateur=%s", user["username"])
+            del st.session_state["user"]
+            st.rerun()
 
         st.subheader("Modèle d'IA")
         status = model_status()
@@ -292,7 +296,8 @@ def sidebar():
         if files and st.button("Analyser", use_container_width=True):
             with st.spinner("Envoi vers Azure…"):
                 names = {scot_data.upload_image(f.name, f.getvalue(), f.type) for f in files}
-            log.info("Envoi de %d image(s) : %s", len(names), ", ".join(sorted(names)))
+            log.info("Envoi de %d image(s) par %s : %s", len(names), st.session_state["user"]["username"],
+                     ", ".join(sorted(names)))
             st.session_state["upload_round"] = st.session_state.get("upload_round", 0) + 1
             with st.spinner("Analyse par l'IA en cours…"):
                 deadline = time.time() + 45   # Event Grid + Function : ~5 à 15 s (plus au démarrage à froid)
@@ -316,7 +321,64 @@ def sidebar():
     return interval
 
 
+# ── Connexion ───────────────────────────────────────────────
+MAX_ATTEMPTS = 5
+LOCK_SECONDS = 60
+
+
+def login_page() -> bool:
+    """Affiche la page de connexion. Renvoie True si un utilisateur est connecté."""
+    if "user" in st.session_state:
+        return True
+
+    users = scot_auth.load_users()
+    if not users and not scot_auth.running_on_azure():
+        # En local, sans comptes configurés : accès direct pour développer
+        st.session_state["user"] = {"username": "local", "name": "Développeur (local)"}
+        return True
+
+    _, col, _ = st.columns([1, 1.2, 1])
+    with col:
+        st.markdown('<div class="logo-container">SCOT</div>', unsafe_allow_html=True)
+        st.markdown('<div class="logo-sub">Système de Contrôle Optique Transparent</div>', unsafe_allow_html=True)
+        st.write("")
+        if not users:
+            st.error("Aucun compte n'est configuré sur ce serveur. Voir scripts/gerer_comptes.py.")
+            return False
+
+        locked_until = st.session_state.get("locked_until", 0)
+        if time.time() < locked_until:
+            st.error(f"Trop de tentatives. Réessayez dans {int(locked_until - time.time()) + 1} s.")
+            return False
+
+        with st.form("login"):
+            st.subheader("Connexion")
+            username = st.text_input("Identifiant", placeholder="prenom.nom")
+            password = st.text_input("Mot de passe", type="password")
+            submitted = st.form_submit_button("Se connecter")
+        if submitted:
+            user = scot_auth.authenticate(username, password)
+            if user:
+                st.session_state["user"] = user
+                st.session_state["failed"] = 0
+                log.info("Connexion reussie utilisateur=%s", user["username"])
+                st.rerun()
+            failed = st.session_state.get("failed", 0) + 1
+            st.session_state["failed"] = failed
+            log.warning("Connexion refusee identifiant=%s tentative=%d", username.strip().lower()[:60], failed)
+            if failed >= MAX_ATTEMPTS:
+                st.session_state["locked_until"] = time.time() + LOCK_SECONDS
+                st.session_state["failed"] = 0
+                st.error(f"Trop de tentatives. Réessayez dans {LOCK_SECONDS} s.")
+            else:
+                st.error("Identifiant ou mot de passe incorrect.")
+        st.caption("Pas de compte ? Demandez-le à Jonathan Diaz Vreys.")
+    return False
+
+
 def main():
+    if not login_page():
+        return
     interval = sidebar()
     st.title("Tableau de Bord - Inspection")
     tab_i, tab_h, tab_s = st.tabs(["Inspection Directe", "Historique des Détections", "Statistiques"])

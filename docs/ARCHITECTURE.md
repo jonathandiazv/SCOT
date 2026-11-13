@@ -45,7 +45,7 @@ flowchart LR
 
 | # | De → vers | Ce qui se passe | Authentification |
 |---|---|---|---|
-| 1 | Opérateur → `scot-inspection` | L'opérateur ouvre https://scot-inspection.azurewebsites.net, saisit son nom et envoie une ou plusieurs images (png, jpg, jpeg, bmp, tif, tiff). | aucune (voir §10) |
+| 1 | Opérateur → `scot-inspection` | L'opérateur ouvre https://scot-inspection.azurewebsites.net, se connecte avec son compte et envoie une ou plusieurs images (png, jpg, jpeg, bmp, tif, tiff). | identifiant + mot de passe propres à l'app (voir §10) |
 | 2 | `scot-inspection` → Blob `blob-scot` | L'app dépose chaque image sous le nom `YYYYMMDD_HHMMSS_<nom d'origine>` (heure UTC), sans écraser un fichier existant. | identité managée de l'app, rôle Storage Blob Data Contributor |
 | 3 | Blob → Event Grid | Le stockage émet un événement `Microsoft.Storage.BlobCreated` vers le topic système `projetscot-events`. | interne Azure |
 | 4 | Event Grid → Function | L'abonnement `blob-scot-to-function` filtre sur `/blobServices/default/containers/blob-scot/` et appelle le webhook `runtime/webhooks/blobs?functionName=Host.Functions.classify_image`. | clé système `blobs_extension` de la Function |
@@ -112,7 +112,7 @@ C'est la table centrale : **une ligne par image analysée**. Elle est remplie pa
 | `ImageHeight` | `INT` | oui | Function | hauteur de l'image d'origine, en pixels |
 | `CreatedAt` | `DATETIME2` | non | SQL | heure UTC de l'insertion, défaut `SYSUTCDATETIME()` |
 | `ValidatedClass` | `NVARCHAR(50)` | oui | App web | classe réelle choisie par l'opérateur (vide tant que non validée) |
-| `ValidatedBy` | `NVARCHAR(200)` | oui | App web | nom saisi par l'opérateur |
+| `ValidatedBy` | `NVARCHAR(200)` | oui | App web | nom de l'utilisateur connecté |
 | `ValidatedAt` | `DATETIME2` | oui | App web | heure UTC de la validation |
 | `OperatorComment` | `NVARCHAR(1000)` | oui | App web | commentaire libre |
 
@@ -211,6 +211,7 @@ Les valeurs des paramètres secrets ne sont stockées que dans Azure (App Settin
 | scot-inspection | `SCM_DO_BUILD_DURING_DEPLOYMENT` | `true` (installe `requirements.txt` au déploiement) |
 | scot-inspection | commande de démarrage | `python -m streamlit run app.py --server.port 8000 --server.address 0.0.0.0 --server.headless true --browser.gatherUsageStats false` |
 | scot-inspection | `APPLICATIONINSIGHTS_CONNECTION_STRING` | **secret** : envoi des logs vers `appi-scot-inspection` |
+| scot-inspection | `SCOT_USERS` | comptes de l'app en JSON : identifiant → nom affiché + empreinte PBKDF2 du mot de passe (jamais le mot de passe). Géré par `scripts/gerer_comptes.py` |
 | scot-inspection (option) | `FUNCTION_HEALTH_URL` | URL de `/api/health` ; valeur par défaut codée dans `webapp/app.py` |
 
 ## 9. Code et dépendances
@@ -227,6 +228,8 @@ Les valeurs des paramètres secrets ne sont stockées que dans Azure (App Settin
 | `webapp/scot_data.py` | accès SQL (pyodbc + ODBC 18 sur Azure, mssql-python en local) et Blob, réessais au réveil de la base | scot-inspection (ou local) | azure-identity, azure-storage-blob |
 | `webapp/run_local.ps1` | lance l'app en local avec le compte `az login` | poste local | — |
 | `scripts/sql_firewall_mon_ip.ps1` | ajoute ou met à jour la règle de pare-feu SQL de la personne connectée | poste local | Azure CLI |
+| `webapp/scot_auth.py` | empreinte et vérification des mots de passe (PBKDF2-SHA256, 300 000 itérations, sel aléatoire) | scot-inspection | bibliothèque standard |
+| `scripts/gerer_comptes.py` | lister, ajouter, réinitialiser, supprimer les comptes de l'app | poste local | Azure CLI |
 | `sql/schema.sql` | création de `dbo.Predictions`, index et droits (idempotent) | base SCOT | — |
 
 Environnement local : Python 3.12 dans `.venv` (même version que sur Azure), PyTorch en version CPU.
@@ -238,8 +241,13 @@ Environnement local : Python 3.12 dans `.venv` (même version que sur Azure), Py
 - **Transport** : HTTPS forcé sur l'app et la Function (HTTP redirigé en 301), TLS 1.2 minimum partout.
 - **Supervision** : Application Insights sur la Function (`fn-scot-app`) et sur l'app (`appi-scot-inspection` : envois d'images, validations, erreurs SQL).
 - **Coûts** : budget `budget-scot-mensuel` (20 par mois), avec une alerte à 80 % de dépense réelle et une à 100 % de dépense prévue, envoyées à Jonathan et aux Owners. Le crédit restant se consulte sur https://www.microsoftazuresponsorships.com/balance.
+- **Connexion à l'app** : page de connexion avec un compte par personne (identifiant `prenom.nom`). Les mots de passe sont stockés uniquement sous forme d'empreinte PBKDF2-SHA256 salée dans le paramètre `SCOT_USERS`. Après 5 échecs, le formulaire est bloqué 60 s, et chaque connexion (réussie ou refusée) est enregistrée dans Application Insights. La validation d'une prédiction est enregistrée au nom de l'utilisateur connecté. En local sans `SCOT_USERS`, l'app s'ouvre sans connexion pour faciliter le développement.
+- **Gérer les comptes** (une modification redémarre l'app, ~30 s) :
+  `.venv\Scripts\python scripts\gerer_comptes.py lister | ajouter <identifiant> --nom "Prénom Nom" | reinitialiser <identifiant> | supprimer <identifiant>`
 - **Points ouverts** :
-  - l'app web n'a pas d'authentification. La connexion Entra ID d'App Service demande une inscription d'application, que les étudiants ne peuvent pas créer dans le tenant de l'université (`allowedToCreateApps = false`). Il faut la demander à la DSI ;
+  - la connexion Entra ID d'App Service (comptes universitaires) n'est pas possible : elle demande une inscription d'application, que les étudiants ne peuvent pas créer dans le tenant de l'université (`allowedToCreateApps = false`) ;
+  - le blocage après 5 échecs est lié à la session du navigateur : recharger la page le réinitialise. La protection repose donc surtout sur des mots de passe longs et aléatoires ;
+  - la connexion ne protège que l'app : les images de `blob-scot` restent accessibles à qui connaît leur URL exacte ;
   - le conteneur `blob-scot` est lisible publiquement (choix assumé) ;
   - la règle `AllowAllWindowsAzureIps` ouvre SQL à tous les services Azure.
 
