@@ -6,3 +6,4 @@ azure-identity
 azure-storage-blob
 pyodbc
 mssql-python
+azure-monitor-opentelemetry

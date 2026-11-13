@@ -9,6 +9,7 @@ Lancer en local :  python -m streamlit run webapp/app.py   (après `az login`)
 """
 
 import json
+import logging
 import os
 import time
 
@@ -18,6 +19,23 @@ import requests
 import streamlit as st
 
 import scot_data
+
+
+@st.cache_resource
+def get_logger() -> logging.Logger:
+    """Envoie les logs « scot » vers Application Insights si la connexion est configurée (sur Azure)."""
+    logger = logging.getLogger("scot")
+    logger.setLevel(logging.INFO)
+    if os.environ.get("APPLICATIONINSIGHTS_CONNECTION_STRING"):
+        try:
+            from azure.monitor.opentelemetry import configure_azure_monitor
+            configure_azure_monitor(logger_name="scot")
+        except Exception as e:  # noqa: BLE001 — la télémétrie ne doit jamais bloquer l'app
+            logging.getLogger(__name__).warning("Application Insights non initialisé : %s", e)
+    return logger
+
+
+log = get_logger()
 
 CLASSES = ["tache", "rayure", "inclusion", "sans_defaut"]
 DEFECT_CLASSES = ["tache", "rayure", "inclusion"]
@@ -122,6 +140,8 @@ def validation_form(row, key: str):
                 st.warning("Renseignez votre nom d'opérateur dans la barre latérale.")
                 return
             scot_data.save_validation(row["Id"], choice, operator, comment)
+            log.info("Validation prediction=%s predite=%s reelle=%s operateur=%s",
+                     row["Id"], row["PredictedClass"], choice, operator)
             load_predictions.clear()
             st.success("Validation enregistrée.")
             time.sleep(0.6)
@@ -272,6 +292,7 @@ def sidebar():
         if files and st.button("Analyser", use_container_width=True):
             with st.spinner("Envoi vers Azure…"):
                 names = {scot_data.upload_image(f.name, f.getvalue(), f.type) for f in files}
+            log.info("Envoi de %d image(s) : %s", len(names), ", ".join(sorted(names)))
             st.session_state["upload_round"] = st.session_state.get("upload_round", 0) + 1
             with st.spinner("Analyse par l'IA en cours…"):
                 deadline = time.time() + 45   # Event Grid + Function : ~5 à 15 s (plus au démarrage à froid)
@@ -305,6 +326,7 @@ def main():
         def live():
             df, err = get_predictions()
             if err:
+                log.error("Base de données indisponible : %s", err)
                 st.error(f"Base de données indisponible (elle se réveille peut-être, ~1 min) : {err}")
                 return
             tab_inspection(df)

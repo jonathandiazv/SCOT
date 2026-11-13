@@ -1,6 +1,6 @@
 # Architecture SCOT sur Azure
 
-_Système de Contrôle Optique sur surfaces Transparentes — état vérifié avec Azure CLI et sur la base SQL le 12/11/2026, branche `feature/azure-inference`. Ce document ne contient aucun secret : il indique seulement où ils se trouvent._
+_Système de Contrôle Optique sur surfaces Transparentes — état vérifié avec Azure CLI et sur la base SQL le 13/11/2026, branche `feature/azure-inference`. Ce document ne contient aucun secret : il indique seulement où ils se trouvent._
 
 ## 1. Vue d'ensemble
 
@@ -77,7 +77,7 @@ Souscription **Azure for Students** (tenant Université Jean Monnet). Toutes les
 
 | Ressource | Type | Région | Configuration |
 |---|---|---|---|
-| `scot-inspection` | App Service (Web App Linux) | Sweden Central | runtime Python 3.12, WebSockets activés, Always On désactivé, TLS 1.2 min., FTPS seulement, identité managée système |
+| `scot-inspection` | App Service (Web App Linux) | Sweden Central | runtime Python 3.12, HTTPS uniquement, WebSockets activés, Always On désactivé, TLS 1.2 min., FTPS seulement, identité managée système |
 | `asp-scot-web` | Plan App Service | Sweden Central | Linux **F1** (gratuit) : 60 min de CPU/jour, mise en veille après inactivité |
 | `fn-scot-app` | Function App | France Central | Python 3.12, plan **Flex Consumption** (FC1), 2 048 Mo par instance, 100 instances max., HTTPS uniquement, identité managée système |
 | `ASP-VisualStudioOnlineE84EAA5FD02E4-ac26` | Plan Function | France Central | FC1 |
@@ -86,6 +86,8 @@ Souscription **Azure for Students** (tenant Université Jean Monnet). Toutes les
 | `projectscot` | Serveur logique Azure SQL | France Central | authentification **Entra ID uniquement**, accès réseau public activé |
 | `SCOT` | Base Azure SQL | France Central | serverless `GP_S_Gen5_2` (0,5 à 2 vCores), offre gratuite activée, pause auto après 60 min, comportement en fin de quota gratuit : pause |
 | `fn-scot-app` | Application Insights | France Central | logs et traces de la Function |
+| `appi-scot-inspection` | Application Insights | France Central | logs de l'app web |
+| `budget-scot-mensuel` | Budget Cost Management | souscription | 20 par mois, alertes à 80 % (réel) et 100 % (prévu) |
 | `DefaultWorkspace-8cead2cd-…-PAR` | Log Analytics | France Central | espace de travail par défaut (groupe `DefaultResourceGroup-PAR`) |
 
 L'app est en Sweden Central parce que le plan F1 n'a pas de quota en France Central sur cette souscription, et que la politique Azure for Students interdit West Europe et North Europe.
@@ -160,8 +162,10 @@ Créée avant ce travail, vide, utilisée par aucun code. À supprimer ou à ré
 | Règle | Adresse | Rôle |
 |---|---|---|
 | `AllowAllWindowsAzureIps` | 0.0.0.0 | autorise les services Azure (Function, App Service) |
-| `PC-Jonathan` | IP publique du poste de Jonathan | accès local ; à mettre à jour quand l'IP change |
-| `QueryEditorClientIPAddress_…` (×2) | 161.3.x.x | ajoutées par l'éditeur de requêtes du portail |
+| `PC-<prénom.nom>` | IP publique du moment de chaque membre | accès local ; créée ou mise à jour par `scripts/sql_firewall_mon_ip.ps1` |
+
+Quand on change de réseau, il suffit de relancer le script (après `az login`) :
+`powershell -ExecutionPolicy Bypass -File scripts\sql_firewall_mon_ip.ps1`. Les 4 coéquipiers ont le rôle Contributor sur la souscription, ce qui leur permet de gérer leur propre règle.
 
 ## 6. Stockage `projetscot`
 
@@ -171,6 +175,9 @@ Créée avant ce travail, vide, utilisée par aucun code. À supprimer ou à ré
 | `models` | privé | `best_model.onnx` (44,8 Mo) | personne de l'équipe (az CLI) | Function |
 | `projetscot` | privé | paquets de déploiement de la Function (Flex) | déploiement | plateforme Functions |
 | `azure-webjobs-hosts`, `azure-webjobs-secrets` | privé | état interne et clés de la Function | plateforme Functions | plateforme Functions |
+| `eventgrid-deadletter` | privé | événements Event Grid non livrés après 24 h (JSON), pour retraiter les images concernées | Event Grid | équipe |
+
+Accès aux données du compte (rôle **Storage Blob Data Contributor**) : Jonathan, Arthur, Enzo, Hugo, Tanka et l'identité de `scot-inspection`.
 
 ## 7. Event Grid
 
@@ -183,7 +190,7 @@ Créée avant ce travail, vide, utilisée par aucun code. À supprimer ou à ré
 | Destination | webhook de l'extension Blob de `fn-scot-app`, fonction `classify_image` |
 | Schéma | EventGridSchema |
 | Réessais | 30 tentatives max., durée de vie de l'événement 24 h |
-| Dead-letter | aucune (un événement abandonné après 24 h est perdu) |
+| Dead-letter | conteneur `eventgrid-deadletter` du compte `projetscot` |
 
 ## 8. Paramètres d'application
 
@@ -203,6 +210,7 @@ Les valeurs des paramètres secrets ne sont stockées que dans Azure (App Settin
 | scot-inspection | `WEBSITES_PORT` | `8000` |
 | scot-inspection | `SCM_DO_BUILD_DURING_DEPLOYMENT` | `true` (installe `requirements.txt` au déploiement) |
 | scot-inspection | commande de démarrage | `python -m streamlit run app.py --server.port 8000 --server.address 0.0.0.0 --server.headless true --browser.gatherUsageStats false` |
+| scot-inspection | `APPLICATIONINSIGHTS_CONNECTION_STRING` | **secret** : envoi des logs vers `appi-scot-inspection` |
 | scot-inspection (option) | `FUNCTION_HEALTH_URL` | URL de `/api/health` ; valeur par défaut codée dans `webapp/app.py` |
 
 ## 9. Code et dépendances
@@ -218,6 +226,7 @@ Les valeurs des paramètres secrets ne sont stockées que dans Azure (App Settin
 | `webapp/app.py` | tableau de bord : inspection, historique, statistiques, envoi, validation | scot-inspection (ou local) | streamlit, pandas, altair, requests |
 | `webapp/scot_data.py` | accès SQL (pyodbc + ODBC 18 sur Azure, mssql-python en local) et Blob, réessais au réveil de la base | scot-inspection (ou local) | azure-identity, azure-storage-blob |
 | `webapp/run_local.ps1` | lance l'app en local avec le compte `az login` | poste local | — |
+| `scripts/sql_firewall_mon_ip.ps1` | ajoute ou met à jour la règle de pare-feu SQL de la personne connectée | poste local | Azure CLI |
 | `sql/schema.sql` | création de `dbo.Predictions`, index et droits (idempotent) | base SCOT | — |
 
 Environnement local : Python 3.12 dans `.venv` (même version que sur Azure), PyTorch en version CPU.
@@ -226,12 +235,13 @@ Environnement local : Python 3.12 dans `.venv` (même version que sur Azure), Py
 
 - **Aucun mot de passe dans le code.** SQL et Blob sont accessibles par Entra ID : `az login` en local, identités managées sur Azure. Les trois chaînes de connexion de la Function restent dans les App Settings.
 - **Moindre privilège** : la Function ne peut qu'insérer et lire, et l'app ne peut modifier que les 4 colonnes de validation.
+- **Transport** : HTTPS forcé sur l'app et la Function (HTTP redirigé en 301), TLS 1.2 minimum partout.
+- **Supervision** : Application Insights sur la Function (`fn-scot-app`) et sur l'app (`appi-scot-inspection` : envois d'images, validations, erreurs SQL).
+- **Coûts** : budget `budget-scot-mensuel` (20 par mois), avec une alerte à 80 % de dépense réelle et une à 100 % de dépense prévue, envoyées à Jonathan et aux Owners. Le crédit restant se consulte sur https://www.microsoftazuresponsorships.com/balance.
 - **Points ouverts** :
-  - l'app web n'a pas d'authentification ;
-  - l'option « HTTPS uniquement » n'est pas activée sur l'app ;
+  - l'app web n'a pas d'authentification. La connexion Entra ID d'App Service demande une inscription d'application, que les étudiants ne peuvent pas créer dans le tenant de l'université (`allowedToCreateApps = false`). Il faut la demander à la DSI ;
   - le conteneur `blob-scot` est lisible publiquement (choix assumé) ;
-  - la règle `AllowAllWindowsAzureIps` ouvre SQL à tous les services Azure ;
-  - Event Grid n'a pas de dead-letter.
+  - la règle `AllowAllWindowsAzureIps` ouvre SQL à tous les services Azure.
 
 ## 11. Mettre à jour
 
