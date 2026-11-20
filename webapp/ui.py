@@ -1,11 +1,11 @@
 """
-SCOT — Design de l'app : palette clair/sombre, composants (cartes, indicateurs, statuts) et graphiques Plotly.
+SCOT — Design de l'app : palette clair/sombre, composants (cartes, KPI, badges) et graphiques Plotly.
 
-Style volontairement sobre : cartes plates à bordure fine, texte plutôt que badges,
-graphiques monochromes (une couleur d'accent, du gris pour le reste). Le thème actif est
-lu avec st.context.theme pour rester lisible en mode clair comme en mode sombre.
+Le thème actif est lu avec st.context.theme : chaque composant et chaque graphique
+prend ses couleurs dans la palette correspondante, pour rester lisible dans les deux modes.
 """
 
+import base64
 import json
 from contextlib import contextmanager
 from html import escape
@@ -14,23 +14,37 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-# ── Classes et couleurs métier (tons désaturés) ─────────────
+# ── Classes et couleurs métier ──────────────────────────────
 CLASSES = ["tache", "rayure", "inclusion", "sans_defaut"]
 DEFECT_CLASSES = ["tache", "rayure", "inclusion"]
 LABELS = {"tache": "Tache", "rayure": "Rayure", "inclusion": "Inclusion", "sans_defaut": "Sans défaut"}
-CLASS_COLORS = {"tache": "#C08A4A", "rayure": "#4C78A8", "inclusion": "#8A73B0", "sans_defaut": "#6B9E80"}
+CLASS_COLORS = {"tache": "#F97316", "rayure": "#0EA5E9", "inclusion": "#8B5CF6", "sans_defaut": "#10B981"}
 
 PALETTES = {
     "light": {
-        "bg": "#F5F6F8", "card": "#FFFFFF", "border": "#E2E5EA", "text": "#1C2230", "muted": "#6A7282",
-        "grid": "#EEF0F3", "accent": "#2F5BD3", "accent_tint": "#B9CAF4", "neutral": "#C9CED6", "track": "#EEF0F3",
-        "ok": "#1F8A4C", "warn": "#B7791F", "bad": "#C53030", "image_bg": "#0E1218",
+        "bg": "#F3F5FA", "card": "#FFFFFF", "border": "#E1E6EF", "text": "#1B2433", "muted": "#6B7588",
+        "grid": "#EDF0F6", "accent": "#3563E9", "accent_soft": "#E8EEFD", "track": "#E9EDF4",
+        "shadow": "0 1px 2px rgba(16,24,40,.04), 0 6px 20px rgba(16,24,40,.06)",
+        "ok": "#10B981", "warn": "#F59E0B", "bad": "#EF4444", "image_bg": "#0B1120",
     },
     "dark": {
-        "bg": "#0F1217", "card": "#161A21", "border": "#262C36", "text": "#E4E7EC", "muted": "#8B93A1",
-        "grid": "#20252E", "accent": "#6D93F2", "accent_tint": "#2C4170", "neutral": "#3A414D", "track": "#20252E",
-        "ok": "#4CB97A", "warn": "#D6A54A", "bad": "#E06C6C", "image_bg": "#07090C",
+        "bg": "#0B1120", "card": "#131C2E", "border": "#24324C", "text": "#E5EAF2", "muted": "#93A0B8",
+        "grid": "#1E2A40", "accent": "#5B8CFF", "accent_soft": "#1B2A4A", "track": "#22304A",
+        "shadow": "0 1px 2px rgba(0,0,0,.35), 0 8px 24px rgba(0,0,0,.25)",
+        "ok": "#34D399", "warn": "#FBBF24", "bad": "#F87171", "image_bg": "#05080F",
     },
+}
+
+# Icônes (Lucide, licence ISC) — tracés SVG
+ICONS = {
+    "image": '<rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>',
+    "alert": '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+    "clipboard": '<rect width="8" height="4" x="8" y="2" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/>',
+    "gauge": '<path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/>',
+    "zap": '<path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/>',
+    "check": '<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
+    "pencil": '<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/>',
+    "target": '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
 }
 
 
@@ -45,6 +59,12 @@ def pal() -> dict:
     return PALETTES[theme()]
 
 
+def icon(name: str, size: int = 22, color: str = "#fff") -> str:
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" width="{size}" height="{size}" viewBox="0 0 24 24" '
+            f'fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
+            f'{ICONS[name]}</svg>')
+
+
 # ── Feuille de style ────────────────────────────────────────
 def inject_css() -> None:
     p = pal()
@@ -53,62 +73,61 @@ def inject_css() -> None:
     .block-container {{ padding-top: 4.6rem; padding-bottom: 3rem; max-width: 1440px; }}
     h1, h2, h3 {{ letter-spacing: -0.01em; }}
 
-    /* Cartes : tout conteneur créé avec ui.card() — plates, bordure fine */
+    /* Cartes : tout conteneur créé avec ui.card() */
     div[class*="st-key-card-"] {{
-        background: {p['card']}; border: 1px solid {p['border']}; border-radius: 8px; padding: 16px 18px 14px;
+        background: {p['card']}; border: 1px solid {p['border']}; border-radius: 16px;
+        padding: 18px 20px 16px; box-shadow: {p['shadow']};
     }}
-    .card-head {{ display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:4px; }}
-    .card-title {{ font-size: .95rem; font-weight: 600; color: {p['text']}; }}
-    .card-sub {{ font-size: .78rem; color: {p['muted']}; margin-top: 2px; }}
+    .card-head {{ display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:2px; }}
+    .card-title {{ font-size: 1.02rem; font-weight: 650; color: {p['text']}; }}
+    .card-sub {{ font-size: .8rem; color: {p['muted']}; margin-top: 2px; }}
 
-    /* Indicateurs */
-    .kpi {{ background:{p['card']}; border:1px solid {p['border']}; border-radius:8px; padding:14px 18px; height:100%; }}
-    .kpi .l {{ font-size: .72rem; text-transform: uppercase; letter-spacing: .05em; color: {p['muted']}; font-weight: 600; }}
-    .kpi .v {{ font-size: 1.65rem; font-weight: 650; color: {p['text']}; line-height: 1.2; margin-top: 6px;
+    /* KPI */
+    .kpi {{ display:flex; align-items:center; justify-content:space-between; gap:12px;
+            background:{p['card']}; border:1px solid {p['border']}; border-radius:16px;
+            padding:18px 20px; box-shadow:{p['shadow']}; height:100%; }}
+    .kpi .v {{ font-size: 1.75rem; font-weight: 700; color: {p['text']}; line-height: 1.15;
                font-variant-numeric: tabular-nums; }}
-    .kpi .s {{ font-size: .76rem; color: {p['muted']}; margin-top: 4px; }}
+    .kpi .l {{ font-size: .84rem; color: {p['muted']}; margin-top: 3px; }}
+    .kpi .s {{ font-size: .75rem; color: {p['muted']}; margin-top: 6px; }}
+    .kpi .ic {{ flex: 0 0 52px; width:52px; height:52px; border-radius:50%; display:grid; place-items:center; }}
 
-    /* Classe et statuts : du texte, pas de badges */
-    .cls {{ font-weight: 600; color: {p['text']}; font-size: .86rem; }}
-    .cls.lg {{ font-size: 1.6rem; font-weight: 650; line-height: 1.2; }}
-    .status {{ font-size: .8rem; font-weight: 600; white-space: nowrap; }}
-    .status.ok {{ color: {p['ok']}; }} .status.warn {{ color: {p['warn']}; }}
-    .status.bad {{ color: {p['bad']}; }} .status.idle {{ color: {p['muted']}; font-weight: 500; }}
-    .status-sep {{ color: {p['border']}; margin: 0 2px; }}
-
-    .stat {{ font-variant-numeric: tabular-nums; }}
-    .stat .v {{ font-size: 1.6rem; font-weight: 650; color: {p['text']}; line-height: 1.2; }}
-    .stat .s {{ font-size: .78rem; color: {p['muted']}; margin-top: 2px; }}
-    .meter {{ height: 4px; background: {p['track']}; border-radius: 2px; margin: 8px 0 4px; overflow: hidden; }}
-    .meter > div {{ height: 100%; border-radius: 2px; }}
-
-    .page-title {{ font-size: 1.4rem; font-weight: 650; color:{p['text']}; line-height:1.2; }}
-    .page-sub {{ font-size: .84rem; color: {p['muted']}; margin-top: 2px; }}
-    .meta {{ font-size: .78rem; color: {p['muted']}; }}
+    /* Badges et pastilles d'état */
+    .pill {{ display:inline-flex; align-items:center; gap:6px; padding:3px 11px; border-radius:999px;
+             font-weight:650; font-size:.78rem; white-space:nowrap; }}
+    .pill.lg {{ font-size: 1.05rem; padding: 6px 16px; }}
+    .chip {{ display:inline-flex; align-items:center; gap:7px; padding:5px 12px; border-radius:999px;
+             background:{p['card']}; border:1px solid {p['border']}; font-size:.8rem; color:{p['text']}; white-space:nowrap; }}
+    .dot {{ width:8px; height:8px; border-radius:50%; display:inline-block; }}
+    .page-title {{ font-size: 1.55rem; font-weight: 700; color:{p['text']}; line-height:1.2; }}
+    .page-sub {{ font-size: .86rem; color: {p['muted']}; margin-top: 2px; }}
+    .meta {{ font-size: .8rem; color: {p['muted']}; }}
     .meta b {{ color: {p['text']}; font-weight: 600; }}
-    .big-label {{ font-size:.72rem; text-transform:uppercase; letter-spacing:.05em; color:{p['muted']}; font-weight:600; }}
+    .big-label {{ font-size:.74rem; text-transform:uppercase; letter-spacing:.06em; color:{p['muted']}; font-weight:600; }}
 
-    /* Images */
+    /* Images : fond sombre, coins arrondis, hauteur maîtrisée */
     div[class*="st-key-card-"] [data-testid="stImage"] img {{
-        border-radius: 4px; background: {p['image_bg']}; max-height: 440px; object-fit: contain;
+        border-radius: 12px; background: {p['image_bg']}; max-height: 440px; object-fit: contain;
     }}
     div[class*="st-key-thumb-"] [data-testid="stImage"] img {{
-        border-radius: 4px; background: {p['image_bg']}; height: 120px; object-fit: contain;
+        border-radius: 10px; background: {p['image_bg']}; height: 120px; object-fit: contain;
     }}
-    div[class*="st-key-thumb-"] {{ border:1px solid {p['border']}; border-radius:6px; padding:8px; }}
+    div[class*="st-key-thumb-"] {{
+        background:{p['card']}; border:1px solid {p['border']}; border-radius:14px; padding:10px; box-shadow:{p['shadow']};
+    }}
 
     /* Login */
-    div.st-key-card-login {{ padding: 26px 28px 20px; }}
+    div.st-key-card-login {{ padding: 28px 30px 22px; }}
     .login-brand {{ text-align:center; margin-bottom: 6px; }}
-    .login-brand .t {{ font-size: 1.7rem; font-weight: 700; color: {p['text']}; letter-spacing: .08em; }}
-    .login-brand .s {{ font-size: .84rem; color: {p['muted']}; }}
+    .login-brand .t {{ font-size: 1.9rem; font-weight: 800; color: {p['accent']}; letter-spacing: .04em; }}
+    .login-brand .s {{ font-size: .85rem; color: {p['muted']}; }}
     </style>""")
 
 
 # ── Composants ──────────────────────────────────────────────
 @contextmanager
 def card(key: str, title: str | None = None, subtitle: str | None = None, right_html: str = ""):
-    """Carte plate avec titre optionnel."""
+    """Carte blanche (claire) ou ardoise (sombre) avec titre optionnel."""
     with st.container(key=f"card-{key}"):
         if title:
             sub = f'<div class="card-sub">{escape(subtitle)}</div>' if subtitle else ""
@@ -117,33 +136,30 @@ def card(key: str, title: str | None = None, subtitle: str | None = None, right_
         yield
 
 
-def kpi(label: str, value: str, sub: str = "") -> None:
+def icon_bg(name: str, size: int = 24, color: str = "#fff") -> str:
+    """Icône en image de fond CSS (Streamlit filtre les balises <svg> directes)."""
+    b64 = base64.b64encode(icon(name, size, color).encode()).decode()
+    return f"url('data:image/svg+xml;base64,{b64}') center / {size}px no-repeat"
+
+
+def kpi(label: str, value: str, icon_name: str, color: str, sub: str = "") -> None:
     sub_html = f'<div class="s">{escape(sub)}</div>' if sub else ""
-    st.html(f'<div class="kpi"><div class="l">{escape(label)}</div><div class="v">{escape(value)}</div>{sub_html}</div>')
+    st.html(f'<div class="kpi"><div><div class="v">{escape(value)}</div><div class="l">{escape(label)}</div>{sub_html}</div>'
+            f'<div class="ic" style="background:{icon_bg(icon_name)}, {color}"></div></div>')
 
 
 def class_pill(cls: str | None, large: bool = False) -> str:
-    """Nom de la classe en texte simple."""
     if not cls:
         return ""
-    return f'<span class="cls{" lg" if large else ""}">{escape(LABELS.get(cls, cls))}</span>'
+    c = CLASS_COLORS.get(cls, pal()["muted"])
+    return (f'<span class="pill{" lg" if large else ""}" style="background:{c}22;color:{c}">'
+            f'<span class="dot" style="background:{c}"></span>{escape(LABELS.get(cls, cls))}</span>')
 
 
 def chip(text: str, state: str = "ok") -> str:
-    """Statut en texte coloré (vert / ambre / rouge / gris)."""
-    return f'<span class="status {state}">{escape(text)}</span>'
-
-
-def stat(value: str, sub: str = "", fraction: float | None = None, state: str = "ok") -> str:
-    """Grand chiffre + ligne de progression fine (remplace les jauges)."""
     p = pal()
-    bar = ""
-    if fraction is not None:
-        color = {"ok": p["ok"], "warn": p["warn"], "bad": p["bad"], "accent": p["accent"]}.get(state, p["accent"])
-        bar = (f'<div class="meter"><div style="width:{max(0.0, min(fraction, 1.0)) * 100:.1f}%;'
-               f'background:{color}"></div></div>')
-    sub_html = f'<div class="s">{escape(sub)}</div>' if sub else ""
-    return f'<div class="stat"><div class="v">{escape(value)}</div>{bar}{sub_html}</div>'
+    color = {"ok": p["ok"], "warn": p["warn"], "bad": p["bad"], "idle": p["muted"]}[state]
+    return f'<span class="chip"><span class="dot" style="background:{color}"></span>{escape(text)}</span>'
 
 
 def confidence_state(conf: float) -> str:
@@ -162,18 +178,16 @@ def parse_probs(probabilities_json) -> dict:
 def _layout(fig: go.Figure, height: int, legend: bool = False) -> go.Figure:
     p = pal()
     fig.update_layout(
-        height=height, margin=dict(l=4, r=8, t=8, b=4),
+        height=height, margin=dict(l=8, r=8, t=8, b=8),
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
         font=dict(family="Source Sans Pro, Segoe UI, sans-serif", size=12, color=p["muted"]),
         showlegend=legend, hoverlabel=dict(bgcolor=p["card"], bordercolor=p["border"], font_color=p["text"]),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0, font=dict(color=p["muted"], size=11),
-                    itemsizing="constant"),
-        bargap=0.35,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0, font=dict(color=p["text"])),
     )
-    fig.update_xaxes(showgrid=False, zeroline=False, showline=True, linecolor=p["border"],
-                     tickfont=dict(color=p["muted"], size=11), ticks="", automargin=True)
-    fig.update_yaxes(gridcolor=p["grid"], gridwidth=1, zeroline=False, showline=False,
-                     tickfont=dict(color=p["muted"], size=11), automargin=True, ticksuffix="  ")
+    fig.update_xaxes(gridcolor=p["grid"], zeroline=False, linecolor=p["border"], tickfont=dict(color=p["muted"]),
+                     automargin=True)
+    fig.update_yaxes(gridcolor=p["grid"], zeroline=False, linecolor=p["border"], tickfont=dict(color=p["muted"]),
+                     automargin=True, ticksuffix="  ")
     return fig
 
 
@@ -181,40 +195,59 @@ def show(fig: go.Figure, key: str | None = None) -> None:
     st.plotly_chart(fig, width="stretch", theme=None, key=key, config={"displayModeBar": False, "responsive": True})
 
 
-def _hbar(labels: list, values: list, colors: list, text: list, height: int, x_max: float = 100) -> go.Figure:
-    """Barres horizontales fines, sans fond ni axe : valeurs écrites au bout."""
+def proba_bars(probs: dict, height: int = 190) -> go.Figure:
     p = pal()
-    fig = go.Figure(go.Bar(y=labels, x=values, orientation="h", marker=dict(color=colors), width=0.42,
-                           text=text, textposition="outside", cliponaxis=False,
-                           textfont=dict(color=p["text"], size=12), hovertemplate="%{y} : %{text}<extra></extra>"))
+    classes = [c for c in reversed(CLASSES) if c in probs]
+    values = [probs[c] * 100 for c in classes]
+    fig = go.Figure()
+    fig.add_bar(y=[LABELS[c] for c in classes], x=[100] * len(classes), orientation="h",
+                marker=dict(color=p["track"]), hoverinfo="skip", width=0.55)
+    fig.add_bar(y=[LABELS[c] for c in classes], x=values, orientation="h", width=0.55,
+                marker=dict(color=[CLASS_COLORS[c] for c in classes]),
+                text=[f"{v:.1f} %" for v in values], textposition="outside", cliponaxis=False,
+                textfont=dict(color=p["text"], size=12), hovertemplate="%{y} : %{x:.1f} %<extra></extra>")
+    fig.update_layout(barmode="overlay")
     _layout(fig, height)
-    fig.update_xaxes(range=[0, x_max * 1.18], visible=False)
-    fig.update_yaxes(autorange="reversed", showgrid=False, tickfont=dict(color=p["text"], size=12))
+    fig.update_xaxes(range=[0, 118], visible=False)
+    fig.update_yaxes(tickfont=dict(color=p["text"], size=13), gridcolor="rgba(0,0,0,0)")
     return fig
 
 
-def proba_bars(probs: dict, height: int = 170) -> go.Figure:
-    """Probabilités par classe : la classe retenue en couleur d'accent, les autres en gris."""
+def gauge(value: float, title: str, color: str, height: int = 190, suffix: str = " %",
+          target: float | None = None, max_value: float = 100) -> go.Figure:
     p = pal()
-    classes = [c for c in CLASSES if c in probs]
-    top = max(classes, key=lambda c: probs[c]) if classes else None
-    values = [probs[c] * 100 for c in classes]
-    return _hbar([LABELS[c] for c in classes], values,
-                 [p["accent"] if c == top else p["neutral"] for c in classes],
-                 [f"{v:.1f} %" for v in values], height)
+    g = dict(axis=dict(range=[0, max_value], tickwidth=0, tickcolor=p["muted"], tickfont=dict(color=p["muted"], size=10)),
+             bar=dict(color=color, thickness=0.28), bgcolor=p["track"], borderwidth=0)
+    if target is not None:
+        g["threshold"] = dict(line=dict(color=p["text"], width=3), thickness=0.8, value=target)
+    fig = go.Figure(go.Indicator(
+        mode="gauge+number", value=value, gauge=g,
+        number=dict(suffix=suffix, font=dict(size=34, color=p["text"]), valueformat=".1f"),
+        title=dict(text=title, font=dict(size=13, color=p["muted"])),
+        domain=dict(x=[0, 1], y=[0, 1])))
+    _layout(fig, height)
+    fig.update_layout(margin=dict(l=24, r=24, t=36, b=4))
+    return fig
 
 
-def class_bars(counts: pd.Series, height: int = 230) -> go.Figure:
-    """Répartition des détections par classe (remplace le donut)."""
+def donut(counts: pd.Series, height: int = 280) -> go.Figure:
     p = pal()
     counts = counts.reindex(CLASSES, fill_value=0)
-    total = max(int(counts.sum()), 1)
-    return _hbar([LABELS[c] for c in CLASSES], list(counts.values), [p["accent"]] * len(CLASSES),
-                 [f"{int(n)}  ·  {n / total:.0%}" for n in counts.values], height, x_max=max(counts.max(), 1))
+    counts = counts[counts > 0]
+    fig = go.Figure(go.Pie(
+        labels=[LABELS[c] for c in counts.index], values=counts.values, hole=0.68, sort=False,
+        marker=dict(colors=[CLASS_COLORS[c] for c in counts.index], line=dict(color=p["card"], width=3)),
+        textinfo="none", hovertemplate="%{label} : %{value} (%{percent})<extra></extra>"))
+    fig.add_annotation(text=f"<b>{int(counts.sum())}</b><br><span style='font-size:12px'>images</span>",
+                       showarrow=False, font=dict(size=26, color=p["text"]))
+    _layout(fig, height, legend=True)
+    fig.update_layout(legend=dict(orientation="h", yanchor="top", y=-0.02, x=0.5, xanchor="center"))
+    return fig
 
 
-def timeline(df: pd.DataFrame, height: int = 260) -> go.Figure:
-    """Détections par jour, empilées par classe (tons désaturés)."""
+def timeline(df: pd.DataFrame, height: int = 280) -> go.Figure:
+    """Détections par jour, empilées par classe."""
+    p = pal()
     d = df.assign(Jour=df["Local"].dt.tz_localize(None).dt.floor("D"))
     t = d.pivot_table(index="Jour", columns="PredictedClass", values="Id", aggfunc="count", fill_value=0)
     if len(t.index):
@@ -224,46 +257,57 @@ def timeline(df: pd.DataFrame, height: int = 260) -> go.Figure:
         if c in t.columns:
             fig.add_bar(x=t.index, y=t[c], name=LABELS[c], marker=dict(color=CLASS_COLORS[c]),
                         hovertemplate=f"{LABELS[c]} : %{{y}}<extra>%{{x|%d/%m}}</extra>")
+    fig.update_layout(barmode="stack", bargap=0.45)
     _layout(fig, height, legend=True)
-    fig.update_layout(barmode="stack", bargap=0.55)
-    fig.update_xaxes(tickformat="%d/%m")
+    fig.update_xaxes(tickformat="%d/%m", showgrid=False)
     fig.update_yaxes(rangemode="tozero")
     return fig
 
 
-def confidence_histogram(df: pd.DataFrame, height: int = 240, threshold: float | None = None) -> go.Figure:
+def confidence_histogram(df: pd.DataFrame, height: int = 260, threshold: float | None = None) -> go.Figure:
     """Nombre d'images par tranche de 10 % de confiance.
 
-    Avec seuil : tranches au-dessus du seuil en couleur d'accent (validation automatique),
-    en dessous en gris (validation opérateur), et une ligne fine marque le seuil.
+    Sans seuil : rouge < 50 %, orange 50–80 %, vert au-delà. Avec seuil : vert = validation
+    automatique, orange = validation opérateur requise, et une ligne marque le seuil.
     """
     p = pal()
     edges = list(range(0, 101, 10))
     counts = pd.cut(df["Confidence"] * 100, bins=edges, include_lowest=True, right=True).value_counts(sort=False)
-    labels = [f"{a}–{b}" for a, b in zip(edges[:-1], edges[1:])]
-    thr = 0.8 if threshold is None else threshold
-    colors = [p["accent"] if a >= thr * 100 else p["neutral"] for a in edges[:-1]]
-    fig = go.Figure(go.Bar(x=labels, y=counts.values, marker=dict(color=colors), width=0.6,
-                           hovertemplate="%{x} % : %{y} image(s)<extra></extra>"))
+    labels = [f"{a}–{b} %" for a, b in zip(edges[:-1], edges[1:])]
+    if threshold is None:
+        colors = [p["bad"] if a < 50 else p["warn"] if a < 80 else p["ok"] for a in edges[:-1]]
+    else:
+        colors = [p["ok"] if a >= threshold * 100 else p["warn"] for a in edges[:-1]]
+    fig = go.Figure(go.Bar(x=labels, y=counts.values, marker=dict(color=colors), width=0.7,
+                           hovertemplate="%{x} : %{y} image(s)<extra></extra>"))
     if threshold is not None:
-        fig.add_vline(x=threshold * 10 - 0.5, line=dict(color=p["muted"], width=1, dash="dot"),
-                      annotation=dict(text=f"seuil {threshold:.0%}", font=dict(color=p["muted"], size=11),
-                                      yanchor="bottom"), annotation_position="top")
+        x = threshold * 10 - 0.5  # position du seuil sur l'axe des tranches (une tranche = 10 %)
+        fig.add_vline(x=x, line=dict(color=p["text"], width=2, dash="dash"),
+                      annotation=dict(text=f"seuil {threshold:.0%}", font=dict(color=p["text"]), yanchor="bottom"),
+                      annotation_position="top")
     _layout(fig, height)
     if threshold is not None:
-        fig.update_layout(margin=dict(t=26))
-    fig.update_xaxes(tickangle=0, title=dict(text="confiance (%)", font=dict(size=11, color=p["muted"])))
+        fig.update_layout(margin=dict(t=30))
+    fig.update_xaxes(showgrid=False, tickangle=0, tickfont=dict(size=10))
     fig.update_yaxes(rangemode="tozero")
     return fig
 
 
-def recall_bars(rows: list[dict], height: int = 200) -> go.Figure:
-    """Rappel par classe : vert si ≥ 90 %, rouge sinon."""
+def recall_bars(rows: list[dict], height: int = 230) -> go.Figure:
     p = pal()
-    fig = _hbar([f"{LABELS[r['classe']]} (n={r['n']})" for r in rows], [r["rappel"] for r in rows],
-                [p["ok"] if r["rappel"] >= 90 else p["bad"] for r in rows],
-                [f"{r['rappel']:.0f} %" for r in rows], height)
-    fig.add_vline(x=90, line=dict(color=p["muted"], width=1, dash="dot"))
+    fig = go.Figure()
+    labels = [LABELS[r["classe"]] for r in rows]
+    fig.add_bar(y=labels, x=[100] * len(rows), orientation="h", marker=dict(color=p["track"]),
+                hoverinfo="skip", width=0.5)
+    fig.add_bar(y=labels, x=[r["rappel"] for r in rows], orientation="h", width=0.5,
+                marker=dict(color=[CLASS_COLORS[r["classe"]] for r in rows]),
+                text=[f"{r['rappel']:.0f} %  ({r['n']})" for r in rows], textposition="outside", cliponaxis=False,
+                textfont=dict(color=p["text"]), hovertemplate="%{y} : %{x:.0f} %<extra></extra>")
+    fig.add_vline(x=90, line=dict(color=p["text"], width=1.5, dash="dot"))
+    fig.update_layout(barmode="overlay")
+    _layout(fig, height)
+    fig.update_xaxes(range=[0, 125], visible=False)
+    fig.update_yaxes(autorange="reversed", tickfont=dict(color=p["text"], size=13), gridcolor="rgba(0,0,0,0)")
     return fig
 
 
@@ -273,11 +317,10 @@ def confusion_heatmap(validated: pd.DataFrame, height: int = 300) -> go.Figure:
         index=CLASSES, columns=CLASSES, fill_value=0)
     fig = go.Figure(go.Heatmap(
         z=ct.values, x=[LABELS[c] for c in CLASSES], y=[LABELS[c] for c in CLASSES],
-        colorscale=[[0, p["card"]], [1, p["accent_tint"]]], showscale=False,
-        text=ct.values, texttemplate="%{text}", textfont=dict(size=14, color=p["text"]),
-        hovertemplate="Réel %{y} → prédit %{x} : %{z}<extra></extra>", xgap=2, ygap=2))
+        colorscale=[[0, p["track"]], [1, p["accent"] if theme() == "dark" else "#9DB8F9"]], showscale=False,
+        text=ct.values, texttemplate="%{text}", textfont=dict(size=15, color=p["text"]),
+        hovertemplate="Réel %{y} → prédit %{x} : %{z}<extra></extra>", xgap=4, ygap=4))
     _layout(fig, height)
-    fig.update_xaxes(title=dict(text="Prédit", font=dict(color=p["muted"])), side="top", showline=False)
-    fig.update_yaxes(title=dict(text="Réel", font=dict(color=p["muted"])), autorange="reversed", showgrid=False,
-                     ticks="", ticksuffix="   ")
+    fig.update_xaxes(title=dict(text="Prédit", font=dict(color=p["muted"])), side="top", showgrid=False)
+    fig.update_yaxes(title=dict(text="Réel", font=dict(color=p["muted"])), autorange="reversed", showgrid=False)
     return fig
