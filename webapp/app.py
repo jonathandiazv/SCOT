@@ -6,8 +6,8 @@ modèle. Elle lit les prédictions dans Azure SQL et les images dans le Blob, pe
 d'envoyer des images et de corriger les prédictions (correction experte).
 
 Organisation :
-  app.py       connexion + navigation
-  views.py     les trois pages (Inspection, Historique, Statistiques)
+  app.py       connexion + navigation (barre latérale)
+  views.py     les pages (Inspection, Historique, Statistiques, Administration) et la barre latérale
   ui.py        thème clair/sombre, composants et graphiques
   services.py  données SQL/Blob, état de la Function, logs
 Lancer en local : powershell -ExecutionPolicy Bypass -File webapp\\run_local.ps1
@@ -91,7 +91,10 @@ def main() -> None:
     if st.session_state["user"].get("role") == "admin":
         pages.append(st.Page(views.page_admin, title="Administration", icon=":material/admin_panel_settings:",
                              url_path="administration"))
-    st.navigation(pages, position="top").run()
+    nav = st.navigation(pages, position="sidebar")
+    with st.sidebar:
+        views.sidebar_panel()
+    nav.run()
 
 
 main()

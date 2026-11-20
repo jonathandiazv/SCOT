@@ -1,9 +1,9 @@
 # Thème SCOT : l'app suit automatiquement le mode clair ou sombre de l'appareil
 # (l'utilisateur peut aussi le forcer depuis le menu « ⋮ » > Settings).
+# La barre latérale reste sombre dans les deux modes (style « logiciel métier »).
 
 [client]
 toolbarMode = "minimal"
-showSidebarNavigation = false
 
 [browser]
 gatherUsageStats = false
@@ -12,19 +12,34 @@ gatherUsageStats = false
 headless = true
 
 [theme]
-baseRadius = "0.65rem"
-buttonRadius = "0.55rem"
+baseRadius = "0.3rem"
+buttonRadius = "0.3rem"
+showSidebarBorder = false
 
 [theme.light]
-primaryColor = "#3563E9"
-backgroundColor = "#F3F5FA"
-secondaryBackgroundColor = "#EAEEF5"
-textColor = "#1B2433"
-borderColor = "#E1E6EF"
+primaryColor = "#2F6FE0"
+backgroundColor = "#EEF1F5"
+secondaryBackgroundColor = "#E3E7ED"
+textColor = "#1E2633"
+borderColor = "#D9DEE6"
+
+[theme.light.sidebar]
+primaryColor = "#5B8DEF"
+backgroundColor = "#1B2533"
+secondaryBackgroundColor = "#263347"
+textColor = "#C9D2DF"
+borderColor = "#2E3B4F"
 
 [theme.dark]
-primaryColor = "#5B8CFF"
-backgroundColor = "#0B1120"
-secondaryBackgroundColor = "#1A2438"
-textColor = "#E5EAF2"
-borderColor = "#25334D"
+primaryColor = "#5B8DEF"
+backgroundColor = "#0F1217"
+secondaryBackgroundColor = "#1C222B"
+textColor = "#E4E7EC"
+borderColor = "#262C36"
+
+[theme.dark.sidebar]
+primaryColor = "#5B8DEF"
+backgroundColor = "#11161F"
+secondaryBackgroundColor = "#1D2635"
+textColor = "#C9D2DF"
+borderColor = "#232D3C"
